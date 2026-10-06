@@ -8,8 +8,8 @@ import { rateTargets, applyRate } from '@/lib/store';
 import { yen, pct } from '@/lib/format';
 import type { Estimate, EstVersion, EstLine } from '@/lib/types';
 
-export function RateModal({ pid, e, ei, v, custRate, sel, initialTarget, onClose, onApplied }: {
-  pid: string; e: Estimate; ei: number; v: EstVersion; custRate: number; sel: Set<number>; initialTarget: 'sel' | 'all'; onClose: () => void; onApplied: () => void;
+export function RateModal({ pid, e, ei, v, custRate, sel, initialTarget, onClose }: {
+  pid: string; e: Estimate; ei: number; v: EstVersion; custRate: number; sel: Set<number>; initialTarget: 'sel' | 'all'; onClose: () => void;
 }) {
   const { s, act, toast } = useStore();
   const [target, setTarget] = useState<'sel' | 'grp' | 'all'>(initialTarget);
@@ -24,7 +24,7 @@ export function RateModal({ pid, e, ei, v, custRate, sel, initialTarget, onClose
   const r = Number(rate); const okRate = mode === 'reset' || (r > 0 && r < 10);
   const after = estTotals(s, sim, alsoDefault && okRate && mode === 'set' ? r : custRate);
   const apply = () => {
-    act(st => applyRate(st, pid, ei, v, idx, mode, r, alsoDefault, target)); onClose(); onApplied();
+    act(st => applyRate(st, pid, ei, v, idx, mode, r, alsoDefault, target)); onClose();
     toast(mode === 'reset' ? idx.length + '件の掛率を初期値に戻しました' : idx.length + '件の掛率を ' + r.toFixed(2) + ' にしました');
   };
   return <Modal onClose={onClose}>
