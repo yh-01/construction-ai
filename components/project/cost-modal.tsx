@@ -38,7 +38,7 @@ export function CostModal({ p, idx, onClose, onDelete }: { p: Project; idx: numb
     const e = act(st => saveCost(st, p.no!, d, idx));
     onClose(); toast((idx >= 0 ? '実績を更新しました' : '実績を登録しました') + '（' + e.cat + '／' + (e.group || '工種なし') + '）');
   };
-  return <Modal onClose={onClose}>
+  return <Modal size="mid" onClose={onClose}>
     <div className="card-head"><h2 className="section-label">{idx >= 0 ? '実績を編集' : '実績を登録'}</h2><span className="cs">{p.no} {p.title}</span></div>
     <div className="card-body"><div className="form form2">
       <label>計上日<input type="date" value={d.date} onChange={up('date')} /></label>

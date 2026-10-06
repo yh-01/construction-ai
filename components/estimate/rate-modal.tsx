@@ -27,7 +27,7 @@ export function RateModal({ pid, e, ei, v, custRate, sel, initialTarget, onClose
     act(st => applyRate(st, pid, ei, v, idx, mode, r, alsoDefault, target)); onClose();
     toast(mode === 'reset' ? idx.length + '件の掛率を初期値に戻しました' : idx.length + '件の掛率を ' + r.toFixed(2) + ' にしました');
   };
-  return <Modal onClose={onClose}>
+  return <Modal size="mid" onClose={onClose}>
     <div className="card-head"><h2 className="section-label">掛率を一括変更</h2><span className="cs">{e.no} 第{v.v}版</span></div>
     <div className="card-body stack">
       <div><div className="step">1. どの明細を変えるか</div><div className="stack" style={{ gap: 6 }}>
