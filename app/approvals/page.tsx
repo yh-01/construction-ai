@@ -4,11 +4,20 @@ import React, { useEffect } from 'react';
 import { useStore } from '@/lib/store-context';
 import { useNav } from '@/components/shell';
 import { PageHead, StatusBadge } from '@/components/ui';
-import { SegChips } from '@/components/punch';
-import { mySites, worker, partner, isExt, recCalc, recWarnings, isFinal } from '@/lib/calc';
+import { mySites, worker, partner, isExt, recCalc, recWarnings, isFinal, projByNo, siteName, siteShort } from '@/lib/calc';
 import { approve, reject, approveAll } from '@/lib/store';
-import { TODAY } from '@/lib/data';
+import { TODAY, SITE_INTERNAL } from '@/lib/data';
 import { fromMin, hm, nk, md, mdw, fmtDate } from '@/lib/format';
+import type { Punch } from '@/lib/types';
+
+/** 現場の区間チップ（モックの segChips） */
+function SegChips({ r }: { r: Punch }) {
+  const { s } = useStore();
+  return <>{r.segs.map((sg, i) => {
+    const p = projByNo(s, sg.site); const bad = sg.site !== SITE_INTERNAL && p && !p.members.includes(r.worker);
+    return <span key={i} className={`seg-chip ${sg.site === SITE_INTERNAL ? 'int' : ''} ${bad || !sg.end ? 'bad' : ''}`} title={siteName(s, sg.site)}>{siteShort(sg.site)}　{sg.start}–{sg.end || '？'}</span>;
+  })}</>;
+}
 
 export default function ApprovalsPage() {
   const { s, ui, setUi, act, toast } = useStore();
