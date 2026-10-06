@@ -62,9 +62,9 @@ export default function EstimateEditPage() {
   useFlash(flashId, clearFlash);
 
   /* 合計カードの点滅（明細を変えたとき） */
-  const totalsRef = useRef<HTMLDivElement>(null); const firstRef = useRef(true);
+  const totalsRef = useRef<HTMLDivElement>(null); const prevKey = useRef<string | null>(null);
   const t = r ? estTotals(s, r.v.lines, r.c.rate) : null;
-  useEffect(() => { if (firstRef.current) { firstRef.current = false; return; } const el = totalsRef.current; if (!el) return; el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }, [t?.sub, t?.cost, estKey]);
+  useEffect(() => { const first = prevKey.current !== estKey; prevKey.current = estKey; if (first) return; const el = totalsRef.current; if (!el) return; el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }, [t?.sub, t?.cost, estKey]);
 
   /* ドラッグ＆ドロップ */
   const dragRef = useRef<Drag>(null);
