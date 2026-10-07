@@ -1,49 +1,42 @@
 'use client';
-/* スマホ画面 M-01〜M-05（打刻・自分の記録・工程表・代理入力） */
-import React, { useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+/* スマホ画面 M-02〜M-05（打刻・自分の記録・工程表・代理入力）。本人のスマホで画面いっぱいに使う */
+import React, { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useStore } from '@/lib/store-context';
-import { useNav } from '@/components/shell';
-import { StatusBadge, useNa } from '@/components/ui';
+import { useNav, homeOf } from '@/components/shell';
+import { StatusBadge, Modal, ModalHead, ModalFoot } from '@/components/ui';
 import { SchedSVG } from '@/components/svgs';
 import { StateChip } from '@/components/punch';
 import { ROLES, worker, partner, isExt, projByNo, custOf, siteName, siteShort, recCalc, isFinal, assignedSites, mySites, punchState, BREAKS } from '@/lib/calc';
-import { punchIn, punchMove, punchOut, proxySave } from '@/lib/store';
-import { TODAY, SITE_INTERNAL } from '@/lib/data';
+import { punchIn, punchMove, punchOut, proxySave, requestFix } from '@/lib/store';
+import { TODAY, SITE_INTERNAL, nowHM } from '@/lib/data';
 import { mdw, md, nk, hm, toMin } from '@/lib/format';
 import type { Project } from '@/lib/types';
 
-/* 打刻ボタンを押した後にデモ時刻を進める（本番は押した時刻） */
-const NEXT: Record<string, string> = { '出勤': '11:00', '移動': '17:30', '退勤': '17:30' };
 type Sheet = { type: 'plan' | 'move' | 'out'; brk: string; mins?: number; q?: string };
 type M05Field = 'worker' | 'site' | 'start' | 'end' | 'brk' | 'reason';
 
+/* いまの時刻（1分ごとに更新） */
+function useClock() { const [t, setT] = useState(nowHM()); useEffect(() => { const id = setInterval(() => setT(nowHM()), 15000); return () => clearInterval(id); }, []); return t; }
+
 export default function MobilePage() {
-  const { s, ui, setUi, act, toast } = useStore();
-  const { goMobile } = useNav();
+  const { s, ui, setUi, act, toast, user, logout } = useStore();
+  const { goMobile, router } = useNav();
   const sp = useSearchParams();
   const scr = sp.get('s') || 'M-02';
-  const na = useNa();
   const [sheet, setSheet] = useState<Sheet | null>(null);
+  const [fixOpen, setFixOpen] = useState<string | null>(null); // 修正依頼する打刻ID
+  const [fixReason, setFixReason] = useState('');
+  const curClock = useClock();
 
-  const wid = ROLES[ui.role].me || 'E2'; // 本人（PCの役割では仮に社員職人）
-  const w = worker(s, wid);
+  const wid = ui.me || '';
+  const w = wid ? worker(s, wid) : undefined;
+  if (!w) return <div className="mapp"><div className="ph-body"><div className="placeholder">このユーザーは作業員マスタに紐づいていないため、打刻画面は使えません。<br /><button className="lnk" onClick={() => router.push(homeOf(ui.role))}>事務所の画面へ</button></div></div></div>;
   const ext = isExt(s, wid);
-  const curClock = ui.clock[wid] || '08:00';
-  const setClock = (t: string) => setUi(u => ({ clock: { ...u.clock, [wid]: t } }));
   const defaultSite = (): string | undefined => { const a = assignedSites(s, wid); return (ui.planSite && ui.planSite[wid]) || (a[0] || {}).no || undefined; };
   const tabs: [string, string][] = ([['M-02', '打刻'], ['M-03', '記録'], ['M-04', '工程表']] as [string, string][]).concat(ui.role === '職長' ? [['M-05', '代理入力']] : []);
   const org = w.kind === '社員' ? '颯エンタープライズ 建設事業部' : partner(s, w.org).name;
-
-  /* ---- M-01 ログイン（見た目だけ） ---- */
-  const m01 = () => <div style={{ padding: '40px 8px 0', display: 'flex', flexDirection: 'column', gap: 16 }}>
-    {/* eslint-disable-next-line @next/next/no-img-element */}
-    <div style={{ textAlign: 'center' }}><img src="/logo.png" alt="h-ent" style={{ height: 48 }} /><div style={{ fontWeight: 800, marginTop: 8 }}>颯エンタープライズ 打刻</div></div>
-    <label className="ph-field">ログインID<input value={wid === 'X1' ? 'yamakita-watanabe' : 'suzuki.d'} disabled /></label>
-    <label className="ph-field">パスワード<input type="password" value="********" disabled /></label>
-    <button className="ph-send" onClick={na}>ログイン</button>
-    <p className="note" style={{ textAlign: 'center' }}>入力端末（個人スマホ／会社タブレット）はヒアリング：Q12</p>
-    <button className="lnk" onClick={() => goMobile('M-02')} style={{ textAlign: 'center' }}>打刻画面へ（モック）</button></div>;
+  const doLogout = () => { logout(); router.push('/login/'); };
 
   /* ---- M-02 打刻 ---- */
   const m02 = () => {
@@ -60,7 +53,7 @@ export default function MobilePage() {
           : <><div className="site-name">{p ? p.title : site === SITE_INTERNAL ? '社内作業' : '現場が未設定'}</div><div className="small muted num">{p ? site + '　' + custOf(s, p).short : ''}</div>
             {ps.state === '作業中' && ps.seg ? <div className="el num">{el}<small> 経過（{ps.seg.start}〜）</small></div> : <button className="lnk small" onClick={() => setSheet({ type: 'plan', brk: 'std' })}>別の現場にする</button>}</>}
       </div>
-      {ps.state === '未出勤' ? <button className="ph-big main" disabled={!site} onClick={() => { if (!site) return; act(st => punchIn(st, wid, site, t)); setClock(NEXT['出勤']); toast('出勤しました　' + t + '　' + siteName(s, site)); }}>出勤する</button> : null}
+      {ps.state === '未出勤' ? <button className="ph-big main" disabled={!site} onClick={() => { if (!site) return; const tt = nowHM(); act(st => punchIn(st, wid, site, tt)); toast('出勤しました　' + tt + '　' + siteName(s, site)); }}>出勤する</button> : null}
       {ps.state === '作業中' ? <><button className="ph-big" onClick={() => setSheet({ type: 'move', brk: 'std' })}>現場を変える（移動）</button><button className="ph-big main" onClick={() => setSheet({ type: 'out', brk: 'std' })}>退勤する</button></> : null}
       {timeline && timeline.length ? <div className="ph-card"><h3>今日の記録</h3><ul className="tl">{timeline}</ul>{ps.state === '退勤済' && r ? <div className="small" style={{ marginTop: 6 }}><StatusBadge s={r.status} /> 職長の{ext ? '確認' : '承認'}待ち</div> : null}</div> : null}
       {site && site !== SITE_INTERNAL ? <button className="ph-chip" onClick={() => { setUi({ m04site: site }); goMobile('M-04'); }} style={{ textAlign: 'center' }}>{site} の工程表を見る</button> : null}
@@ -68,13 +61,19 @@ export default function MobilePage() {
     </>;
   };
 
-  /* ---- M-03 自分の記録（見た目だけ） ---- */
+  /* ---- M-03 自分の記録 ---- */
   const m03 = () => {
-    const recs = s.punches.filter(r => r.worker === wid).sort((a, b) => a.date < b.date ? 1 : -1).slice(0, 8);
+    const recs = s.punches.filter(r => r.worker === wid).sort((a, b) => a.date < b.date ? 1 : -1).slice(0, 14);
+    const sendFix = () => { if (!fixOpen) return; if (!fixReason.trim()) { toast('修正したい内容を入れてください'); return; } act(st => requestFix(st, fixOpen, fixReason.trim())); setFixOpen(null); setFixReason(''); toast('修正を依頼しました。職長が日次チェックで確認します'); };
+    const target = fixOpen ? s.punches.find(r => r.id === fixOpen) : null;
     return <>
-      <div className="ph-card"><h3>最近の記録</h3><div className="ph-list">{recs.length ? recs.map(r => { const c = recCalc(r); return <div key={r.id} className="it"><span>{mdw(r.date)}<br /><span className="small muted">{r.segs.map(sg => siteShort(sg.site)).join(' → ')}</span></span><span style={{ textAlign: 'right' }}><span className="num">{c.open ? '－' : nk(c.dayNinku) + '人工'}</span><br /><StatusBadge s={r.status} /></span></div>; }) : <span className="muted small">記録がありません</span>}</div></div>
-      <button className="ph-chip" onClick={na} style={{ textAlign: 'center' }}>修正を依頼する（△）</button>
-      <p className="note">自分の打刻と承認状況を見る画面（D-09）。モックでは見た目だけです。</p>
+      <div className="ph-card"><h3>最近の記録</h3><div className="ph-list">{recs.length ? recs.map(r => { const c = recCalc(r); return <div key={r.id} className="it"><span>{mdw(r.date)}<br /><span className="small muted">{r.segs.map(sg => siteShort(sg.site) + '　' + sg.start + '–' + (sg.end || '？')).join(' → ')}</span>{r.fix ? <><br /><span className="small" style={{ color: 'var(--warn-tx)' }}>修正依頼中：{r.fix.reason}</span></> : null}</span><span style={{ textAlign: 'right', whiteSpace: 'nowrap' }}><span className="num">{c.open ? '－' : nk(c.dayNinku) + '人工'}</span><br /><StatusBadge s={r.status} />{!r.fix ? <><br /><button className="lnk small" onClick={() => { setFixOpen(r.id); setFixReason(''); }}>修正を依頼</button></> : null}</span></div>; }) : <span className="muted small">記録がありません</span>}</div></div>
+      <p className="note">自分の打刻と承認状況。間違いがあれば「修正を依頼」で職長に知らせます（承認済みの日は職長が差戻してから直します）。</p>
+      {fixOpen && target ? <Modal onClose={() => setFixOpen(null)}>
+        <ModalHead title="修正を依頼する" cs={mdw(target.date)} />
+        <div className="card-body stack"><label className="ph-field">修正したい内容<textarea rows={3} value={fixReason} onChange={e => setFixReason(e.target.value)} placeholder="例：退勤を押し忘れた。実際は17:30に退勤" /></label></div>
+        <ModalFoot><button className="btn btn-secondary" onClick={() => setFixOpen(null)}>キャンセル</button><button className="btn btn-primary" onClick={sendFix}>依頼する</button></ModalFoot>
+      </Modal> : null}
     </>;
   };
 
@@ -93,7 +92,7 @@ export default function MobilePage() {
   /* ---- M-05 代理入力（職長） ---- */
   const m05 = () => {
     const sites = mySites(s, ui.role);
-    const ws = [...new Set(sites.flatMap(p => p.members))].filter(id => id !== 'E1');
+    const ws = [...new Set(sites.flatMap(p => p.members))].filter(id => id !== wid);
     const f = { ...ui.m05 };
     if (!f.worker) f.worker = ws.includes('X2') ? 'X2' : ws[0];
     if (!f.site) f.site = (sites[0] || {}).no || '';
@@ -101,7 +100,7 @@ export default function MobilePage() {
     const setF = (k: M05Field, v: string) => setUi(u => ({ m05: { ...u.m05, ...f, [k]: k === 'brk' ? Number(v) : v } }));
     const save = () => {
       if (toMin(f.end) <= toMin(f.start)) { toast('終了は開始より後にしてください'); return; }
-      act(st => proxySave(st, f));
+      act(st => proxySave(st, f, wid));
       toast(worker(s, f.worker).name + 'さんの' + md(TODAY) + 'を代理で登録しました（理由：' + f.reason + '）');
     };
     return <div className="ph-card stack" style={{ gap: 10 }}><h3 style={{ margin: 0 }}>作業員の代わりに入力</h3>
@@ -113,7 +112,7 @@ export default function MobilePage() {
       <div className="ph-field">理由<div className="ph-chips row-wrap">{['スマホがない', '端末持ち込み禁止の現場', '打ち忘れ'].map(x => <button key={x} className="ph-chip" onClick={() => setF('reason', x)} aria-pressed={f.reason === x}>{x}</button>)}</div></div>
       {ex && isFinal(ex) ? <div className="hint">この日は承認・確認済みのため代理入力できません。</div> : ex ? <div className="hint">すでに打刻があります。登録すると代理入力の内容で置き換えます。</div> : null}
       <button className="ph-send" onClick={save} disabled={!!(ex && isFinal(ex))}>代理で登録する</button>
-      <p className="note" style={{ margin: 0 }}>入力者（佐藤 健一）と理由が記録されます。登録後は日次チェック（S-06）に「入力済」で出ます。</p></div>;
+      <p className="note" style={{ margin: 0 }}>入力者（{w.name}）と理由が記録されます。登録後は日次チェック（S-06）に「入力済」で出ます。</p></div>;
   };
 
   /* ---- シート（退勤の休憩選択・現場の選択） ---- */
@@ -123,7 +122,7 @@ export default function MobilePage() {
     const close = () => setSheet(null);
     const bg = (e: React.MouseEvent<HTMLDivElement>) => { if (e.target === e.currentTarget) close(); };
     if (sh.type === 'out') {
-      const pOut = () => { const t = curClock; act(st => punchOut(st, wid, t, sh.brk, sh.mins ?? 75)); setSheet(null); setClock(NEXT['退勤']); toast('退勤しました　' + t + '。職長の' + (ext ? '確認' : '承認') + '待ちです'); };
+      const pOut = () => { const t = nowHM(); act(st => punchOut(st, wid, t, sh.brk, sh.mins ?? 75)); setSheet(null); toast('退勤しました　' + t + '。職長の' + (ext ? '確認' : '承認') + '待ちです'); };
       return <div className="ph-sheet" onClick={bg}><div className="in">
         <div className="row" style={{ justifyContent: 'space-between' }}><b>退勤する（{curClock}）</b><button className="lnk" onClick={close}>閉じる</button></div>
         <div className="small muted" style={{ fontWeight: 700 }}>今日の休憩時間</div>
@@ -137,9 +136,9 @@ export default function MobilePage() {
     const cur = sh.type === 'move' && ps.seg ? ps.seg.site : defaultSite();
     const q = sh.q || ''; const hits = q ? others.filter(p => (p.no + p.title + custOf(s, p).short).includes(q)) : [];
     const pickSite = (site: string) => {
-      const t = curClock;
+      const t = nowHM();
       if (sh.type === 'plan') { setUi(u => ({ planSite: { ...(u.planSite || {}), [wid]: site } })); setSheet(null); return; }
-      act(st => punchMove(st, wid, site, t)); setSheet(null); setClock(NEXT['移動']); toast('現場を変えました　' + t + '　' + siteName(s, site));
+      act(st => punchMove(st, wid, site, t)); setSheet(null); toast('現場を変えました　' + t + '　' + siteName(s, site));
     };
     const chip = (p: Project, withCust: boolean) => <button key={p.no!} className="ph-chip" onClick={() => pickSite(p.no!)} disabled={p.no === cur}><b className="num">{p.no}</b>　{p.title}{withCust ? <><br /><span className="small muted">{custOf(s, p).short}{p.no === cur ? '（いまの現場）' : ''}</span></> : null}</button>;
     return <div className="ph-sheet" onClick={bg}><div className="in">
@@ -154,15 +153,13 @@ export default function MobilePage() {
     </div></div>;
   };
 
-  const body = ({ 'M-01': m01, 'M-02': m02, 'M-03': m03, 'M-04': m04, 'M-05': m05 } as Record<string, () => React.ReactNode>)[scr] || m02;
+  const body = ({ 'M-02': m02, 'M-03': m03, 'M-04': m04, 'M-05': m05 } as Record<string, () => React.ReactNode>)[scr] || m02;
 
-  return <main className="mstage">
-    {scr === 'M-02' ? <div className="demo-strip"><span className="tag kari">デモ操作</span>打刻の時刻<input type="time" value={curClock} onChange={e => setClock(e.target.value)} aria-label="デモ用の時刻" /><span className="small muted">押すと次の時刻に進みます（本番は押した時刻）</span></div> : null}
-    <div className="phone" aria-label="スマホ画面">
-      {scr === 'M-01' ? null : <div className="ph-top"><small>{mdw(TODAY)}　{org}</small><div className="who">{w.name} さん</div></div>}
-      <div className="ph-body">{body()}</div>
-      {scr === 'M-01' ? null : <nav className="ph-nav" style={{ gridTemplateColumns: `repeat(${tabs.length},1fr)` }}>{tabs.map(t => <button key={t[0]} className="ph-tab" onClick={() => goMobile(t[0])} aria-current={scr === t[0] ? 'page' : undefined}>{t[1]}</button>)}</nav>}
-      {sheetView()}
-    </div>
-  </main>;
+  return <div className="mapp" aria-label="スマホ画面">
+    <div className="ph-top"><div><small>{mdw(TODAY)}　{curClock}　{org}</small><div className="who">{w.name} さん</div></div>
+      <div className="row" style={{ gap: 10 }}>{ROLES[ui.role].pc.length ? <button className="lnk" onClick={() => router.push(ui.lastPc || homeOf(ui.role))}>事務所の画面</button> : null}<button className="lnk" onClick={doLogout}>ログアウト</button></div></div>
+    <div className="ph-body">{body()}</div>
+    <nav className="ph-nav" style={{ gridTemplateColumns: `repeat(${tabs.length},1fr)` }}>{tabs.map(t => <button key={t[0]} className="ph-tab" onClick={() => goMobile(t[0])} aria-current={scr === t[0] ? 'page' : undefined}>{t[1]}</button>)}</nav>
+    {sheetView()}
+  </div>;
 }

@@ -5,12 +5,13 @@ import { Modal, ModalHead, ModalFoot } from './ui';
 import { useStore } from '@/lib/store-context';
 import { saveLead, type LeadForm } from '@/lib/store';
 import { TODAY, STAFFS } from '@/lib/data';
+import { addDays } from '@/lib/format';
 
 export function LeadModal({ onClose, onSaved }: { onClose: () => void; onSaved: (id: string) => void }) {
   const { s, act, toast } = useStore();
-  const [f, setF] = useState<LeadForm>({ custName: '富岳フーズ 本社工場', title: '第1工場 エアー配管 更新', reqDate: TODAY, staff: STAFFS[0], site: '', contactName: '', email: '', tel: '', estDue: '2026-10-21' });
+  const [f, setF] = useState<LeadForm>({ custName: '', title: '', reqDate: TODAY, staff: STAFFS[0], site: '', contactName: '', email: '', tel: '', estDue: addDays(TODAY, 14) });
   const up = (k: keyof LeadForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
-  const save = () => { const p = act(st => saveLead(st, f)); toast('与件を登録しました'); onSaved(p.id); };
+  const save = () => { if (!f.title.trim()) { toast('件名を入れてください'); return; } const p = act(st => saveLead(st, f)); toast('与件を登録しました'); onSaved(p.id); };
   return <Modal onClose={onClose}>
     <ModalHead title="与件を登録" cs="A-01" />
     <div className="card-body"><div className="form">

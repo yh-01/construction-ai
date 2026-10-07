@@ -4,10 +4,18 @@
    ========================================================= */
 import type {
   Koshu, Customer, Product, Partner, Worker, Vendor, WorkRule, Company, Holiday,
-  Project, Cost, Punch, EstLine, Flags, FlagKey,
+  Project, Cost, Punch, EstLine, Flags, FlagKey, User,
 } from './types';
 
-export const TODAY = '2026-10-07';
+/* サンプルデータは ANCHOR（2026-10-07）を「今日」として書いてある。
+   アプリの「今日」は実際の日付（TODAY）。初期化時に差分の日数だけ全データの日付をずらす（lib/store.ts） */
+export const ANCHOR = '2026-10-07';
+const pad2 = (n: number) => String(n).padStart(2, '0');
+export const TODAY = (() => { const d = new Date(); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); })();
+export const THIS_MONTH = TODAY.slice(0, 7);
+export const PREV_MONTH = (() => { const [y, m] = TODAY.split('-').map(Number); const d = new Date(y, m - 2, 1); return d.getFullYear() + '-' + pad2(d.getMonth() + 1); })();
+/** いまの時刻 HH:MM */
+export const nowHM = () => { const d = new Date(); return pad2(d.getHours()) + ':' + pad2(d.getMinutes()); };
 export const SITE_INTERNAL = 'INT'; // 社内作業
 export const DEFAULT_RATE = 1.30; // 得意先マスタ未登録の与件で使う標準掛率【仮】
 
@@ -29,6 +37,10 @@ export const CUSTOMERS: Customer[] = [
     contacts: [{ id: 'c21', name: '片桐 由美', dept: '工務部', email: 'katagiri@example.com', tel: '054-000-2203' }] },
   { id: 'C3', name: '清見製紙株式会社', short: '清見製紙', zip: '417-0000', addr: '静岡県富士市（架空）6-7-8', tel: '0545-00-3303', rate: 1.35, note: '',
     contacts: [{ id: 'c31', name: '望月 正', dept: '保全課', email: 'mochizuki@example.com', tel: '0545-00-3304' }, { id: 'c32', name: '石川 恵', dept: '第2工場 保全', email: 'ishikawa@example.com', tel: '0545-00-3390' }] },
+  { id: 'C4', name: '富岳フーズ株式会社', short: '富岳フーズ', zip: '418-0000', addr: '静岡県富士宮市（架空）9-10', tel: '0544-00-1230', rate: 1.30, note: '食品工場。入場教育あり',
+    contacts: [{ id: 'c41', name: '大石 誠', dept: '富士宮工場 工務課', email: 'oishi@example.com', tel: '0544-00-1234' }] },
+  { id: 'C5', name: '駿河機械工業株式会社', short: '駿河機械', zip: '422-0000', addr: '静岡県静岡市駿河区（架空）11-12', tel: '054-000-5501', rate: 1.28, note: '',
+    contacts: [{ id: 'c51', name: '佐野 正樹', dept: '生産技術部', email: 'sano@example.com', tel: '054-000-5502' }] },
 ];
 
 /* 品目マスタ（cat：材料／労務／法定福利費／経費、kind：工種の目安） */
@@ -44,6 +56,11 @@ export const PRODUCTS: Product[] = [
   { code: 'P-0132', name: '支持金物 L型架台', alias: 'Lアングル架台、架台', spec: 'L-50 溶融亜鉛', unit: '台', cost: 3800, cat: '材料', kind: '支持' },
   { code: 'P-0133', name: '吊りボルト W3/8', alias: '全ネジ、寸切り', spec: '1m', unit: '本', cost: 220, cat: '材料', kind: '支持' },
   { code: 'P-0141', name: '保温材 25A用', alias: 'ラギング25', spec: 'GW 25t', unit: 'm', cost: 1100, cat: '材料', kind: '保温' },
+  { code: 'P-0142', name: '保温材 50A用', alias: 'ラギング50', spec: 'GW 25t', unit: 'm', cost: 1500, cat: '材料', kind: '保温' },
+  { code: 'P-0103', name: 'SUS配管 40A Sch10S', alias: 'ステン管40、SUS40', spec: '4m', unit: '本', cost: 9800, cat: '材料', kind: '配管' },
+  { code: 'P-0113', name: 'SUS エルボ 40A', alias: 'L40、エル40', spec: '90°ロング', unit: '個', cost: 1100, cat: '材料', kind: '配管' },
+  { code: 'P-0151', name: '仕切弁 25A', alias: 'バルブ25、ゲート25', spec: 'SUS 10K', unit: '台', cost: 8500, cat: '材料', kind: '配管' },
+  { code: 'P-0152', name: '仕切弁 50A', alias: 'バルブ50、ゲート50', spec: 'SUS 10K', unit: '台', cost: 16000, cat: '材料', kind: '配管' },
   { code: 'P-0201', name: '配管工', alias: '配管屋、配管人工', spec: '', unit: '人工', cost: 22000, cat: '労務', kind: '労務' },
   { code: 'P-0202', name: '鳶工', alias: '鳶、重量鳶', spec: '', unit: '人工', cost: 24000, cat: '労務', kind: '労務' },
   { code: 'P-0203', name: '溶接工', alias: 'TIG溶接、溶接屋', spec: 'TIG', unit: '人工', cost: 25000, cat: '労務', kind: '労務' },
@@ -54,6 +71,8 @@ export const PRODUCTS: Product[] = [
   { code: 'P-0403', name: 'フォークリフト リース', alias: 'フォーク', spec: '3t', unit: '日', cost: 12000, cat: '経費', kind: '重機' },
   { code: 'P-0404', name: '運搬費 4tユニック', alias: 'ユニック、運搬', spec: '', unit: '台', cost: 38000, cat: '経費', kind: '運搬' },
   { code: 'P-0405', name: '産業廃棄物処分費', alias: '産廃', spec: '', unit: '式', cost: 30000, cat: '経費', kind: '処分' },
+  { code: 'P-0406', name: '高所作業車 12m', alias: '高所車、バケット', spec: '自走式', unit: '日', cost: 18000, cat: '経費', kind: '重機' },
+  { code: 'P-0407', name: '仮設足場', alias: '足場、ローリング', spec: '一式', unit: '式', cost: 60000, cat: '経費', kind: '仮設' },
 ];
 
 /* 協力会社（法人2・一人親方2・請負のみ1） */
@@ -63,6 +82,7 @@ const PARTNERS_BASE: Partner[] = [
   { id: 'S1', name: '吉田 浩二（一人親方）', type: '個人（一人親方）', rate: 23000, close: '月末', pay: '翌月末', invoice: false },
   { id: 'S2', name: '山本 修（一人親方）', type: '個人（一人親方）', rate: 26000, close: '月末', pay: '翌月末', invoice: true },
   { id: 'K3', name: '株式会社 駿東電設', type: '法人', rate: null, close: '月末', pay: '翌月末', invoice: true },
+  { id: 'K4', name: '株式会社 富士保温工業', type: '法人', rate: null, close: '月末', pay: '翌月末', invoice: true },
 ];
 const PARTNER_EXT: Record<string, Partial<Partner>> = {
   K1: { addr: '静岡県富士市（架空）', tel: '0545-00-1111', person: '山北 和也', invNo: 'T1234567890123', license: '静岡県知事 許可（般-5）第00001号', contract: '常用・請負', rateHist: [{ from: '2025-04-01', v: 21000 }, { from: '2026-04-01', v: 22000 }], half: 12000, ot: '人工に足す（0.25単位）', fee: '先方負担', safety: 1.0, other: '', wht: '不要', checker: '職長' },
@@ -70,6 +90,7 @@ const PARTNER_EXT: Record<string, Partial<Partner>> = {
   S1: { addr: '静岡県富士宮市（架空）', tel: '090-0000-3333', person: '吉田 浩二', invNo: '', license: '', contract: '常用のみ', rateHist: [{ from: '2026-04-01', v: 23000 }], half: null, ot: '時間単価で別に払う', fee: '当社負担', safety: 0, other: '', wht: '要確認', checker: '職長' },
   S2: { addr: '静岡県三島市（架空）', tel: '090-0000-4444', person: '山本 修', invNo: 'T3456789012345', license: '', contract: '常用のみ', rateHist: [{ from: '2026-04-01', v: 26000 }], half: null, ot: '人工に足す（0.25単位）', fee: '当社負担', safety: 0, other: '', wht: '要確認', checker: '職長と管理者' },
   K3: { addr: '静岡県駿東郡（架空）', tel: '055-000-5555', person: '駿東 太郎', invNo: 'T4567890123456', license: '国土交通大臣 許可（特-4）第00002号', contract: '請負のみ', rateHist: [], half: null, ot: '－', fee: '先方負担', safety: 1.0, other: '', wht: '不要', checker: '管理者' },
+  K4: { addr: '静岡県富士市（架空）', tel: '0545-00-6666', person: '富士 一郎', invNo: 'T5678901234568', license: '静岡県知事 許可（般-3）第00003号', contract: '請負のみ', rateHist: [], half: null, ot: '－', fee: '先方負担', safety: 1.0, other: '', wht: '不要', checker: '管理者' },
 };
 export const PARTNERS: Partner[] = PARTNERS_BASE.map(p => ({ ...p, ...(PARTNER_EXT[p.id] || {}) }));
 
@@ -87,6 +108,8 @@ const WORKERS_BASE: Worker[] = [
   { id: 'X5', name: '吉田 浩二', kind: '一人親方', org: 'S1', job: '配管工' },
   { id: 'X6', name: '山本 修', kind: '一人親方', org: 'S2', job: '鳶工' },
   { id: 'E6', name: '望月 さやか', kind: '社員', org: '建設事業部', job: '事務', rates: [] },
+  { id: 'E7', name: '小野 隆', kind: '社員', org: '建設事業部', job: '配管工', rates: [{ from: '2026-04-01', v: 27000 }] },
+  { id: 'X7', name: '森 翔太', kind: '協力会社', org: 'K2', job: '鳶工' },
 ];
 /* ---- v0.1.5 設定まわり（すべて【仮】。勤怠の正本を颯にするか＝案1/案2 はヒアリングで決める） ---- */
 export const FLAG_DEF: [FlagKey, string, string][] = [
@@ -104,8 +127,9 @@ const STAFF_EXT: Record<string, Partial<Worker>> = {
   E4: { kana: 'たなか まこと', empNo: '1003', emp: '正社員', pay: '日給月給', rule: 'R1', approver: '川口（管理者）', hired: '2014-04-01', means: 'スマホ', flags: { punch: true, att: true, cost: true, ot: true }, lv: { base: '2026-04-01', grant: 20, used: 8 } },
   E5: { kana: 'いとう りょう', empNo: '1011', emp: '契約社員', pay: '日給', rule: 'R1', approver: '田中 誠（職長）', hired: '2020-06-01', means: 'スマホ', flags: { punch: true, att: true, cost: true, ot: true }, lv: { base: '2026-06-01', grant: 15, used: 2 } },
   E6: { kana: 'もちづき さやか', empNo: '1020', emp: 'パート・アルバイト', pay: '時給', rule: 'R2', approver: '川口（管理者）', hired: '2024-04-01', means: '共用端末のみ', flags: { punch: true, att: true, cost: false, ot: true }, lv: { base: '2026-04-01', grant: 7, used: 4 } },
+  E7: { kana: 'おの たかし', empNo: '1017', emp: '正社員', pay: '日給月給', rule: 'R1', approver: '田中 誠（職長）', hired: '2021-04-01', means: 'スマホ', flags: { punch: true, att: true, cost: true, ot: true }, lv: { base: '2026-04-01', grant: 14, used: 5 } },
 };
-const EXT_EXT: Record<string, Partial<Worker>> = { X1: { means: 'スマホ' }, X2: { means: 'スマホ' }, X3: { means: '共用端末のみ' }, X4: { means: '共用端末のみ' }, X5: { means: 'スマホ' }, X6: { means: '代理入力のみ' } };
+const EXT_EXT: Record<string, Partial<Worker>> = { X1: { means: 'スマホ' }, X2: { means: 'スマホ' }, X3: { means: '共用端末のみ' }, X4: { means: '共用端末のみ' }, X5: { means: 'スマホ' }, X6: { means: '代理入力のみ' }, X7: { means: 'スマホ' } };
 export const WORKERS: Worker[] = WORKERS_BASE.map(w => {
   const x: Worker = { ...w, ...(STAFF_EXT[w.id] || EXT_EXT[w.id] || {}) };
   if (x.kind !== '社員') x.flags = { ...EXT_FLAGS };
@@ -118,6 +142,7 @@ export const VENDORS: Vendor[] = [
   { id: 'V3', name: '清水リース（架空）', cat: '重機・リース', invNo: 'T7890123456789', tel: '054-000-1003', close: '20日', pay: '翌月末', note: '' },
   { id: 'V4', name: '駿河産廃センター（架空）', cat: '産廃', invNo: 'T8901234567890', tel: '054-000-1004', close: '月末', pay: '翌月末', note: 'マニフェスト' },
   { id: 'V5', name: '富岳運輸（架空）', cat: '運搬', invNo: '', tel: '054-000-1005', close: '月末', pay: '翌月末', note: 'インボイス未登録（経過措置）' },
+  { id: 'V6', name: '静岡バルブ商会（架空）', cat: '材料', invNo: 'T9012345678901', tel: '054-000-1006', close: '20日', pay: '翌月末', note: 'バルブ・計器' },
 ];
 export const WORK_RULES: WorkRule[] = [
   { id: 'R1', name: '現場（日給月給・日給）', start: '08:00', end: '17:00', hours: 8, brk: '標準（10時15分・昼60分・15時15分）', system: '1年単位の変形労働時間制【要確認】', cal: '現場カレンダー', ot: '1日8時間超・週40時間超', late: '判定しない（朝礼基準）' },
@@ -210,6 +235,31 @@ export const PROJECTS_INIT: Project[] = [
         L('配管工事', 'P-0101', 80), L('配管工事', 'P-0111', 90), L('配管工事', 'P-0115', 30), L('配管工事', 'P-0131', 140),
         L('配管工事', 'P-0201', 110, 1.20), L('配管工事', 'P-0203', 30, 1.20), WEL('配管工事', 360000),
         L('仮設・運搬', 'P-0404', 3), L('仮設・運搬', 'P-0405', 4), L('仮設・運搬', 'P-0403', 10)] }] }] },
+  { id: 'Y-2026-034', status: '与件', cust: 'C4', custName: '富岳フーズ 本社工場', contact: { name: '大石 誠', email: 'oishi@example.com', tel: '0544-00-1234' }, title: '第1工場 エアー配管 更新', reqDate: '2026-10-05', staff: '杉本（営業）', estDue: '2026-10-21', expire: null, site: '富岳フーズ 本社工場 第1工場',
+    foreman: null, period: null, no: null, members: [], estimates: [], memos: 0, files: ['既設エアー配管 系統図.pdf'], summary: { equip: '第1工場 コンプレッサー室〜ライン エアー配管', work: 'SGP 40A → SUS 40A 約50m 更新、仕切弁 4台 交換', period: '12月の年末停止期間', cond: '食品工場。入場教育・異物混入対策あり', due: '10/21 提出', note: '' } },
+  { id: 'Y-2026-032', status: '見積中', cust: 'C5', custName: '駿河機械工業', title: 'コンプレッサー 更新 搬入据付工事', reqDate: '2026-09-20', staff: '長谷川（営業）', estDue: '2026-10-09', expire: '2026-11-08', site: '駿河機械 本社工場 動力棟',
+    foreman: 'E4', period: null, no: null, members: [], memos: 2, files: ['動力棟 平面図.pdf', 'コンプレッサー 仕様書.pdf'], summary: { equip: '動力棟 コンプレッサー #1', work: '既設撤去・搬出、新設 搬入・据付、配管接続', period: '11月下旬（土日2日間）', cond: '搬入口 W2.4m。ラフター25t 使用', due: '10/9 提出', note: '電源切替は先方手配' },
+    estimates: [{ no: 'M-2026-044', rate: 0, versions: [
+      { v: 1, date: '2026-10-03', state: '作成中', lines: [
+        L('撤去・搬出', 'P-0202', 8, 1.25), L('撤去・搬出', 'P-0402', 1), L('撤去・搬出', 'P-0405', 1),
+        L('搬入・据付', 'P-0202', 10, 1.25), L('搬入・据付', 'P-0204', 6, 1.25), L('搬入・据付', 'P-0402', 1), L('搬入・据付', 'P-0401', 1), WEL('搬入・据付', 36000),
+        L('配管工事', 'P-0102', 4), L('配管工事', 'P-0121', 6), L('配管工事', 'P-0152', 2), L('配管工事', 'P-0201', 3, 1.20)] }] }] },
+  { id: 'Y-2026-017', status: '施工中', cust: 'C3', custName: '清見製紙', title: '第2工場 冷却塔 配管更新工事', reqDate: '2026-07-02', staff: '杉本（営業）', estDue: '2026-07-24', expire: '2026-08-23', site: '清見製紙 第2工場 冷却塔',
+    foreman: 'E4', period: ['2026-09-14', '2026-10-16'], no: '2026-0114', members: ['E4', 'E7', 'X7', 'X4'], memos: 1, files: ['冷却塔 配管図.pdf'], summary: { equip: '第2工場 冷却塔 #2', work: '冷却水 往き・還り 50A 更新 約60m、仕切弁 50A 2台', period: '9/14〜10/16', cond: '屋外。高所作業車 使用', due: '7/24 提出', note: '' },
+    estimates: [{ no: 'M-2026-030', rate: 0, versions: [
+      { v: 1, date: '2026-07-24', state: '受注', lines: [
+        L('配管工事', 'P-0102', 16), L('配管工事', 'P-0112', 14), L('配管工事', 'P-0121', 8), L('配管工事', 'P-0122', 8), L('配管工事', 'P-0152', 2),
+        L('支持・吊り', 'P-0132', 8), L('支持・吊り', 'P-0133', 24),
+        L('配管工事', 'P-0201', 30, 1.20), L('配管工事', 'P-0203', 10, 1.20), WEL('配管工事', 110000),
+        L('仮設・運搬', 'P-0406', 10), L('仮設・運搬', 'P-0404', 1)] }] }] },
+  { id: 'Y-2026-005', status: '完了', cust: 'C1', custName: '東駿精機工業', title: '本社工場 コンプレッサー室 配管改修工事', reqDate: '2026-04-06', staff: '長谷川（営業）', estDue: '2026-04-24', expire: '2026-05-24', site: '東駿精機 本社工場 コンプレッサー室',
+    foreman: 'E1', period: ['2026-06-01', '2026-06-26'], no: '2026-0098', members: ['E1', 'E2', 'X1', 'X2'], memos: 1, files: ['完成図.pdf'], summary: null,
+    pastLabor: { staffNinku: 36.0, staffCost: 1044000, extNinku: 30.0, extCost: 660000, note: '6/1〜6/26の承認済分（サンプルの集計値）' },
+    estimates: [{ no: 'M-2026-011', rate: 0, versions: [
+      { v: 1, date: '2026-04-24', state: '受注', lines: [
+        L('配管工事', 'P-0103', 20), L('配管工事', 'P-0113', 30), L('配管工事', 'P-0151', 4), L('配管工事', 'P-0131', 40),
+        L('配管工事', 'P-0201', 36, 1.20), L('配管工事', 'P-0203', 12, 1.20), WEL('配管工事', 150000),
+        L('仮設・運搬', 'P-0407', 1), L('仮設・運搬', 'P-0405', 1)] }] }] },
 ];
 
 /* 原価実績（材料・外注・経費の手入力分） */
@@ -231,6 +281,17 @@ export const COSTS_INIT: Record<string, Cost[]> = {
     { date: '2026-10-05', group: '', cat: '材料費', vendor: '静岡配管資材（架空）', memo: '10月分 消耗品・雑材（複数の工種にまたがる）', amount: 38500, doc: '納品書_20261005.jpg' },
   ],
   '2026-0118': [],
+  '2026-0114': [
+    { date: '2026-09-16', group: '配管工事', cat: '材料費', vendor: '静岡配管資材（架空）', memo: 'SUS配管 50A・エルボ・フランジ', amount: 286000, doc: '請求書_静岡配管資材_0916.pdf' },
+    { date: '2026-09-16', group: '配管工事', cat: '材料費', vendor: '静岡バルブ商会（架空）', memo: '仕切弁 50A 2台', amount: 33000 },
+    { date: '2026-09-30', group: '仮設・運搬', cat: '経費', vendor: '清水リース（架空）', memo: '高所作業車 12m 9月分', amount: 126000 },
+    { date: '2026-10-03', group: '保温工事', cat: '外注費', vendor: '株式会社 富士保温工業', vid: 'K4', memo: '冷却水配管 保温 請負', amount: 150000, doc: '請求書_富士保温_10月.pdf' },
+  ],
+  '2026-0098': [
+    { date: '2026-06-03', group: '配管工事', cat: '材料費', vendor: '静岡配管資材（架空）', memo: 'SUS配管 40A・継手 一式', amount: 268000 },
+    { date: '2026-06-03', group: '配管工事', cat: '材料費', vendor: '静岡バルブ商会（架空）', memo: '仕切弁 25A 4台', amount: 34000 },
+    { date: '2026-06-26', group: '仮設・運搬', cat: '経費', vendor: '駿河産廃センター（架空）', memo: '撤去配管 処分', amount: 28000 },
+  ],
   '2026-0104': [
     { date: '2026-07-07', group: '配管工事', cat: '材料費', vendor: '静岡配管資材（架空）', memo: 'SUS配管 25A・継手 一式', amount: 812000 },
     { date: '2026-07-20', group: '仮設・運搬', cat: '経費', vendor: '清水リース（架空）', memo: 'フォークリフト 3t', amount: 132000 },
@@ -255,7 +316,7 @@ export function genPunches(): Punch[] {
     if (!holidays.includes(s) && ((w >= 1 && w <= 5) || sats.includes(s))) days.push(s);
     d.setDate(d.getDate() + 1);
   }
-  const A = '2026-0112', B = '2026-0115', BR: [string, string][] = [['12:00', '13:00']];
+  const A = '2026-0112', B = '2026-0115', C = '2026-0114', BR: [string, string][] = [['12:00', '13:00']];
   const ot = () => { const r = rnd(); return r < 0.6 ? '17:00' : r < 0.8 ? '18:00' : r < 0.95 ? '18:30' : '19:00'; };
   type SegT = [string, string, string];
   for (const day of days) {
@@ -283,6 +344,8 @@ export function genPunches(): Punch[] {
     if (rnd() < 0.6) add('X4', [[A, '08:00', '17:00']]);
     if (rnd() < 0.5) add('X5', [[B, '08:00', '17:00']]);
     if (rnd() < 0.35) add('X6', [[A, '08:00', '17:00']]);
+    // 現場C（2026-0114）：小野・森は 9/14 以降。加藤は A と C を行き来
+    if (day >= '2026-09-14') { add('E7', [[C, '08:00', ot()]]); if (rnd() < 0.85) add('X7', [[C, '08:00', '17:00']]); if (rnd() < 0.3) add('X4', [[C, '08:00', '17:00']]); }
   }
   // 外部は「確認」
   recs.forEach(r => { const w = WORKERS.find(x => x.id === r.worker); if (w && w.kind !== '社員') r.status = '確認'; });
@@ -300,9 +363,9 @@ export function genPunches(): Punch[] {
   // 10/7（今日）：鈴木・渡辺（スマホ）と田中・小林・加藤（共用端末）はデモで打刻するので空ける
   const today: [string, SegT[]][] = [
     ['E1', [[A, '08:00', '11:00'], [B, '11:00', '17:00']]], ['E3', [[B, '08:00', '17:00']]],
-    ['E5', [[B, '08:00', '17:00']]], ['X2', [[B, '08:00', '17:00']]],
+    ['E5', [[B, '08:00', '17:00']]], ['X2', [[B, '08:00', '17:00']]], ['E7', [[C, '08:00', '17:00']]],
   ];
-  today.forEach(([w, segs]) => recs.push({ id: '', date: TODAY, worker: w, segs: segs.map(s => ({ site: s[0], start: s[1], end: s[2] })), breaks: [{ start: '12:00', end: '13:00' }], status: '入力済', proxy: null }));
+  today.forEach(([w, segs]) => recs.push({ id: '', date: ANCHOR, worker: w, segs: segs.map(s => ({ site: s[0], start: s[1], end: s[2] })), breaks: [{ start: '12:00', end: '13:00' }], status: '入力済', proxy: null }));
   recs.forEach((r, i) => r.id = 'R' + (i + 1));
   return recs;
 }
@@ -313,3 +376,22 @@ export const CAT2DIV: Record<string, '材料費' | '労務費' | '外注費' | '
 export const STAFFS = ['長谷川（営業）', '杉本（営業）', '佐藤 健一（施工管理）'];
 export const PRE = ['与件', '見積中'];
 export const NOGRP = '（工種なし）';
+
+/* ログインするユーザー（サンプル）。パスワードは検証しない（モック） */
+export const USERS: User[] = [
+  { id: 'U1', name: '川口 博', loginId: 'kawaguchi', role: '管理者', workerId: null },
+  { id: 'U2', name: '望月 さやか', loginId: 'mochizuki', role: '経理', workerId: 'E6' },
+  { id: 'U3', name: '佐藤 健一', loginId: 'sato.k', role: '職長', workerId: 'E1' },
+  { id: 'U4', name: '田中 誠', loginId: 'tanaka.m', role: '職長', workerId: 'E4' },
+  { id: 'U5', name: '鈴木 大輔', loginId: 'suzuki.d', role: '社員職人', workerId: 'E2' },
+  { id: 'U6', name: '高橋 翔', loginId: 'takahashi.s', role: '社員職人', workerId: 'E3' },
+  { id: 'U7', name: '伊藤 亮', loginId: 'ito.r', role: '社員職人', workerId: 'E5' },
+  { id: 'U8', name: '小野 隆', loginId: 'ono.t', role: '社員職人', workerId: 'E7' },
+  { id: 'U9', name: '渡辺 剛', loginId: 'yamakita-watanabe', role: '協力会社', workerId: 'X1' },
+  { id: 'U10', name: '中村 拓也', loginId: 'yamakita-nakamura', role: '協力会社', workerId: 'X2' },
+  { id: 'U11', name: '小林 隆', loginId: 'hamatobi-kobayashi', role: '協力会社', workerId: 'X3' },
+  { id: 'U12', name: '加藤 大樹', loginId: 'hamatobi-kato', role: '協力会社', workerId: 'X4' },
+  { id: 'U13', name: '森 翔太', loginId: 'hamatobi-mori', role: '協力会社', workerId: 'X7' },
+  { id: 'U14', name: '吉田 浩二', loginId: 'yoshida.k', role: '協力会社', workerId: 'X5' },
+  { id: 'U15', name: '山本 修', loginId: 'yamamoto.o', role: '協力会社', workerId: 'X6' },
+];

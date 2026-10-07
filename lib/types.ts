@@ -100,10 +100,14 @@ export type Seg = { site: string; start: string; end: string | null };
 export type Brk = { start: string; end: string | null };
 export type PunchStatus = '入力済' | '承認' | '確認' | '差戻し' | '中止';
 export type Proxy = { by: string; reason: string };
+export type FixRequest = { reason: string; at: string };
 export type Punch = {
   id: string; date: string; worker: string; segs: Seg[]; breaks: Brk[]; status: PunchStatus; proxy: Proxy | null;
-  src?: string; brk?: string;
+  src?: string; brk?: string; fix?: FixRequest;
 };
+
+/* ログインするユーザー（役割は画面設計§6。作業員と紐づく人は workerId を持つ） */
+export type User = { id: string; name: string; loginId: string; role: Role; workerId: string | null; stopped?: boolean };
 
 export type Schedule = { ver: number; date: string; name: string };
 export type BudgetLog = { date: string; who: string; reason: string; amount: number };
@@ -129,6 +133,7 @@ export type AppState = {
   partners: Partner[];
   vendors: Vendor[];
   workRules: WorkRule[];
+  users: User[];
 };
 
 export type MasterName = '品目' | '工種' | '得意先' | '作業員' | '協力会社' | '取引先' | '就業ルール' | '会社設定';

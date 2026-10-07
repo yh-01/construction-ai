@@ -17,7 +17,7 @@ export default function LeadsPage() {
   const F = useFilter(K); const { sortBy, Th } = useSort(K);
   const [modal, setModal] = useState(false);
   const canEdit = ROLES[ui.role].edit;
-  const base = myProjects(s, ui.role).filter(p => PRE.includes(p.status) || p.status === '失注'); // 受注したものは与件ではない
+  const base = myProjects(s, ui.role, ui.me).filter(p => PRE.includes(p.status) || p.status === '失注'); // 受注したものは与件ではない
   const list = base.filter(p => { const es = estState(s, p); const c = custOf(s, p);
     const st = F.fv('st'); if (st === 'active' && p.status === '失注') return false; if (st === 'lost' && p.status !== '失注') return false;
     return F.fText('kw', p.id, p.title, p.custName, c.name, p.site) && F.fSel('staff', p.staff)

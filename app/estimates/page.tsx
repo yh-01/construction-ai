@@ -23,7 +23,7 @@ export default function EstimatesPage() {
   const canEdit = ROLES[ui.role].edit;
   const cv = ROLES[ui.role].cost !== 'hide';
   const all: Row[] = [];
-  myProjects(s, ui.role).forEach(p => p.estimates.forEach((e, ei) => { all.push({ p, e, ei, v: e.versions[e.versions.length - 1] }); }));
+  myProjects(s, ui.role, ui.me).forEach(p => p.estimates.forEach((e, ei) => { all.push({ p, e, ei, v: e.versions[e.versions.length - 1] }); }));
   const list = all.filter(({ p, e, v }) => F.fText('kw', e.no, p.id, p.title, p.custName, custOf(s, p).name) && F.fSel('st', v.state) && F.fSel('staff', p.staff)
     && F.fRange('amt', v.lines.length ? estTotals(s, v.lines, e.rate).sub : null) && (!F.fv('mon') || v.date.slice(0, 7) === F.fv('mon')));
   const rows = sortBy(list, { no: x => x.e.no, lead: x => x.p.id, cust: x => x.p.custName, date: x => x.v.date, amt: x => x.v.lines.length ? estTotals(s, x.v.lines, x.e.rate).sub : null, gp: x => x.v.lines.length ? estTotals(s, x.v.lines, x.e.rate).gp : null }, { k: 'date', dir: -1 });
@@ -53,7 +53,7 @@ export default function EstimatesPage() {
 /* 見積を作成する与件を選ぶ */
 function PickLeadModal({ onClose, onPick }: { onClose: () => void; onPick: (pid: string) => void }) {
   const { s, ui } = useStore();
-  const leads = myProjects(s, ui.role).filter(p => PRE.includes(p.status));
+  const leads = myProjects(s, ui.role, ui.me).filter(p => PRE.includes(p.status));
   const [sel, setSel] = useState<string>(leads[0]?.id || '');
   return <Modal onClose={onClose}>
     <div className="card-head"><h2 className="section-label">見積を作成する与件を選ぶ</h2><span className="cs">見積は与件にひもづけて作ります</span></div>

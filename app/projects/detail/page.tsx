@@ -20,7 +20,7 @@ export default function ProjectDetailPage() {
   const { s, ui, setUi, act, toast, clearF, setF } = useStore();
   const { go } = useNav();
   const sp = useSearchParams();
-  const p = resolveProject(s, sp.get('id'), ui.role);
+  const p = resolveProject(s, sp.get('id'), ui.role, ui.me);
   const [menu, setMenu] = useState(false);
   const [confirm, setConfirm] = useState<'back' | 'stop' | 'del' | null>(null);
   const [stopR, setStopR] = useState('発注者都合（設備更新計画の見直し）');

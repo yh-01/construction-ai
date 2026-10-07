@@ -14,7 +14,7 @@ export default function ProjectsPage() {
   const K = 's01';
   const F = useFilter(K); const { sortBy, Th } = useSort(K);
   const cv = ROLES[ui.role].cost !== 'hide';
-  const base = myProjects(s, ui.role).filter(p => p.no);
+  const base = myProjects(s, ui.role, ui.me).filter(p => p.no);
   const list = base.filter(p => { const f = projFin(s, p); const st = F.fv('st');
     if (st === 'active' && !(p.status === '受注' || p.status === '施工中')) return false;
     if (st && st !== 'active' && p.status !== st) return false;

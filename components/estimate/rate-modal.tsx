@@ -1,20 +1,23 @@
 'use client';
-/* S-03 掛率を一括変更モーダル。モックの ACT.rateOpen / MODALS.rate / rateApply をそのまま */
+/* S-03 掛率を一括変更モーダル。モックの ACT.rateOpen / MODALS.rate / rateApply をそのまま
+   適用は onApply で呼び出し側（S-03 の下書き）に任せる。store には書かない */
 import React, { useState } from 'react';
 import { Modal } from '@/components/ui';
 import { useStore } from '@/lib/store-context';
 import { estTotals, groupsOf } from '@/lib/calc';
-import { rateTargets, applyRate } from '@/lib/store';
+import { rateTargets } from '@/lib/store';
 import { yen, pct } from '@/lib/format';
 import type { Estimate, EstVersion, EstLine } from '@/lib/types';
 
-export function RateModal({ pid, e, ei, v, custRate, sel, initialTarget, onClose }: {
-  pid: string; e: Estimate; ei: number; v: EstVersion; custRate: number; sel: Set<number>; initialTarget: 'sel' | 'all'; onClose: () => void;
+export type RateApply = (idx: number[], mode: 'set' | 'reset', rate: number, alsoDefault: boolean, target: 'sel' | 'grp' | 'all') => void;
+
+export function RateModal({ e, v, custRate, sel, initialTarget, onClose, onApply }: {
+  e: Estimate; v: EstVersion; custRate: number; sel: Set<number>; initialTarget: 'sel' | 'all'; onClose: () => void; onApply: RateApply;
 }) {
-  const { s, act, toast } = useStore();
+  const { s, toast } = useStore();
   const [target, setTarget] = useState<'sel' | 'grp' | 'all'>(initialTarget);
   const [group, setGroup] = useState('');
-  const [rate, setRate] = useState(e.rate.toFixed(2));
+  const [rate, setRate] = useState(custRate.toFixed(2));
   const [mode, setMode] = useState<'set' | 'reset'>('set');
   const [alsoDefault, setAlsoDefault] = useState(false);
   const groups = groupsOf(v);
@@ -24,7 +27,7 @@ export function RateModal({ pid, e, ei, v, custRate, sel, initialTarget, onClose
   const r = Number(rate); const okRate = mode === 'reset' || (r > 0 && r < 10);
   const after = estTotals(s, sim, alsoDefault && okRate && mode === 'set' ? r : custRate);
   const apply = () => {
-    act(st => applyRate(st, pid, ei, v, idx, mode, r, alsoDefault, target)); onClose();
+    onApply(idx, mode, r, alsoDefault, target); onClose();
     toast(mode === 'reset' ? idx.length + '件の掛率を初期値に戻しました' : idx.length + '件の掛率を ' + r.toFixed(2) + ' にしました');
   };
   return <Modal size="mid" onClose={onClose}>

@@ -5,7 +5,7 @@ import { StoreProvider } from '@/lib/store-context';
 import { Shell } from '@/components/shell';
 
 export const metadata: Metadata = {
-  title: '颯エンタープライズ 工事管理モック v0.1',
+  title: '颯エンタープライズ 工事管理',
   description: '建設事業部 工事管理 デモ用Webアプリ（サンプルデータ）',
 };
 

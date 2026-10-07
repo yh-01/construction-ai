@@ -69,9 +69,18 @@ export function MoreMenu({ items, small, open, onToggle }: { items: MenuItem[]; 
 }
 
 /** 「モックでは対象外」のトースト（見た目だけのボタン用） */
-export function useNa() { const { toast } = useStore(); return () => toast('モックでは対象外です（見た目だけの画面・操作）'); }
+export function useNa() { const { toast } = useStore(); return () => toast('この操作はモックでは未対応です'); }
 
 /** 行の点滅（追加した明細などに注目させる） */
 export function useFlash(id: string | null, clear: () => void) {
   useEffect(() => { if (!id) return; const el = document.getElementById(id); if (el) { el.classList.add('flash'); el.scrollIntoView({ block: 'nearest' }); } clear(); }, [id, clear]);
+}
+
+/** 表の内容を UTF-8（BOM付き）の CSV にしてダウンロードする */
+export function downloadCsv(filename: string, rows: (string | number)[][]) {
+  const esc = (v: string | number) => { const t = String(v ?? ''); return /[",\r\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+  const body = rows.map(r => r.map(esc).join(',')).join('\r\n') + '\r\n';
+  const blob = new Blob(['\uFEFF' + body], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

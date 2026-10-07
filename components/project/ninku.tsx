@@ -6,14 +6,15 @@ import { TableCount } from '@/components/ui';
 import { FilterBar, useFilter } from '@/components/filter';
 import { worker, partner, isExt, isFinal, recCalc } from '@/lib/calc';
 import type { Project } from '@/lib/types';
+import { THIS_MONTH } from '@/lib/data';
 import { md, wd, nk, uniq, monthDays } from '@/lib/format';
 
 export function Ninku({ p }: { p: Project }) {
   const { s } = useStore();
   const K = 'nk-' + p.no; const F = useFilter(K);
   const mon = F.fv('mon');
-  useEffect(() => { if (!mon) F.set('mon', '2026-10'); }, [mon]); // eslint-disable-line react-hooks/exhaustive-deps
-  const ym = mon || '2026-10'; const days = monthDays(ym); const no = p.no!;
+  useEffect(() => { if (!mon) F.set('mon', THIS_MONTH); }, [mon]); // eslint-disable-line react-hooks/exhaustive-deps
+  const ym = mon || THIS_MONTH; const days = monthDays(ym); const no = p.no!;
   const recsAll = s.punches.filter(r => r.date.startsWith(ym) && recCalc(r).bySite[no]);
   const recs = recsAll.filter(r => F.fSel('kind', isExt(s, r.worker) ? '外部' : '社員') && F.fText('kw', worker(s, r.worker).name, isExt(s, r.worker) ? partner(s, worker(s, r.worker).org).name : '') && (F.fv('st') !== 'final' || isFinal(r)));
   const ws = uniq(recs.map(r => r.worker)).sort((a, b) => (Number(isExt(s, a)) - Number(isExt(s, b))) || a.localeCompare(b));

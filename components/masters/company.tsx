@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useStore } from '@/lib/store-context';
 import { useNav } from '@/components/shell';
-import { PageHead, Modal } from '@/components/ui';
+import { PageHead, Modal, ConfirmModal, type ConfirmSpec } from '@/components/ui';
 import { saveCompany, addHoliday, deleteHoliday } from '@/lib/store';
 import { uniq } from '@/lib/format';
 import type { Company, CompanyKey } from '@/lib/types';
@@ -23,7 +23,9 @@ const CS_DEF: CsGroup[] = [
 const HOURS_KEYS: CompanyKey[] = ['m45', 'y360', 'spY', 'spM', 'spAvg', 'alert1', 'alert2'];
 
 export function CompanySettings() {
-  const { s, ui, act, toast } = useStore();
+  const { s, ui, act, toast, reset } = useStore();
+  const [confirm, setConfirm] = useState<ConfirmSpec | null>(null);
+  const askReset = () => setConfirm({ title: 'データを初期化しますか', body: <p style={{ margin: 0 }}>このブラウザに保存した入力内容（与件・見積・案件・打刻・マスタ）をすべて消して、サンプルデータに戻します。元に戻せません。</p>, okLabel: '初期化する', danger: true, onOk: () => { reset(); toast('サンプルデータに戻しました'); } });
   const { go } = useNav();
   const ed = ui.role === '管理者'; const C = s.company;
   const [edit, setEdit] = useState<string | null>(null);              // 編集中のカード（cs-xxx）
@@ -47,7 +49,8 @@ export function CompanySettings() {
   const holDel = (i: number) => { const h = act(st => deleteHoliday(st, i)); toast(h.name + ' を削除しました'); };
 
   return <>
-    <PageHead id="S-10" title="会社設定" sub={<><span className="tag kari">【仮】項目・値はヒアリングで確定</span> 全社で1つの設定</>} />
+    <PageHead id="S-10" title="会社設定" sub={<><span className="tag kari">【仮】項目・値はヒアリングで確定</span> 全社で1つの設定</>} acts={ui.role === '管理者' ? <button className="btn btn-danger btn-md" onClick={askReset}>データを初期化（サンプルに戻す）</button> : null} />
+    {confirm ? <ConfirmModal spec={confirm} onClose={() => setConfirm(null)} /> : null}
     <div className="hint" style={{ marginBottom: 14 }}>設定は「会社設定（ここ）→ <button className="lnk" onClick={() => go('S-10', { tab: '就業ルール' })}>就業ルール</button>（雇用区分ごと）→ <button className="lnk" onClick={() => go('S-10', { tab: '作業員' })}>作業員</button>（個人）」の順に細かくなります。個人には「どのルールか」と「計算の対象」だけを持たせ、ルールを変えたときに全員を直さずに済むようにしています。</div>
     <div className="grid2"><div className="stack">{CS_DEF.filter((g, i) => i % 2 === 0).map(card)}</div><div className="stack">{CS_DEF.filter((g, i) => i % 2 === 1).map(card)}</div></div>
     <div style={{ marginTop: 14 }}>

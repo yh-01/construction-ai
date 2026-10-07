@@ -189,13 +189,13 @@ export function payCalc(s: AppState, pid: string, month: string): PayCalc {
 }
 
 /* ---- 役割・権限 ---- */
-export type RoleDef = { pc: string[]; mobile: string[]; me: string | null; edit: boolean; cost: 'show' | 'kari' | 'hide' };
+export type RoleDef = { pc: string[]; mobile: string[]; edit: boolean; cost: 'show' | 'kari' | 'hide' };
 export const ROLES: Record<Role, RoleDef> = {
-  '管理者':   { pc: ['S-12', 'S-13', 'S-01', 'S-02', 'S-03', 'S-05', 'S-06', 'S-07', 'S-08', 'S-10', 'S-11'], mobile: [], me: null, edit: true, cost: 'show' },
-  '経理':     { pc: ['S-12', 'S-13', 'S-01', 'S-02', 'S-03', 'S-05', 'S-06', 'S-07', 'S-08', 'S-10'], mobile: [], me: null, edit: false, cost: 'show' },
-  '職長':     { pc: ['S-12', 'S-13', 'S-01', 'S-02', 'S-03', 'S-05', 'T-01', 'S-06'], mobile: ['M-01', 'M-02', 'M-03', 'M-04', 'M-05'], me: 'E1', edit: true, cost: 'kari' },
-  '社員職人': { pc: [], mobile: ['M-01', 'M-02', 'M-03', 'M-04'], me: 'E2', edit: false, cost: 'hide' },
-  '協力会社': { pc: [], mobile: ['M-01', 'M-02', 'M-03', 'M-04'], me: 'X1', edit: false, cost: 'hide' },
+  '管理者':   { pc: ['S-12', 'S-13', 'S-01', 'S-02', 'S-03', 'S-05', 'S-06', 'S-07', 'S-08', 'S-10', 'S-11'], mobile: [], edit: true, cost: 'show' },
+  '経理':     { pc: ['S-12', 'S-13', 'S-01', 'S-02', 'S-03', 'S-05', 'S-06', 'S-07', 'S-08', 'S-10'], mobile: [], edit: false, cost: 'show' },
+  '職長':     { pc: ['S-12', 'S-13', 'S-01', 'S-02', 'S-03', 'S-05', 'T-01', 'S-06'], mobile: ['M-02', 'M-03', 'M-04', 'M-05'], edit: true, cost: 'kari' },
+  '社員職人': { pc: [], mobile: ['M-02', 'M-03', 'M-04'], edit: false, cost: 'hide' },
+  '協力会社': { pc: [], mobile: ['M-02', 'M-03', 'M-04'], edit: false, cost: 'hide' },
 };
 export const ROLE_NAMES = Object.keys(ROLES) as Role[];
 export type ScreenDef = { name: string; mock: '○' | '△'; grp?: string; hidden?: boolean };
@@ -206,7 +206,7 @@ export const SCREENS: Record<string, ScreenDef> = {
   'T-01': { name: '打刻（共用端末）', mock: '○', grp: '打刻・承認' }, 'S-06': { name: '日次チェック・承認', mock: '○', grp: '打刻・承認' },
   'S-07': { name: '勤怠集計・CSV', mock: '△', grp: '集計・支払' }, 'S-08': { name: '外注支払', mock: '○', grp: '集計・支払' },
   'S-10': { name: 'マスタ', mock: '○', grp: 'マスタ' }, 'S-11': { name: 'ユーザー・権限', mock: '△', grp: '管理' },
-  'M-01': { name: 'ログイン', mock: '△' }, 'M-02': { name: '打刻', mock: '○' }, 'M-03': { name: '自分の記録', mock: '△' }, 'M-04': { name: '工程表', mock: '○' }, 'M-05': { name: '代理入力', mock: '○' },
+  'M-02': { name: '打刻', mock: '○' }, 'M-03': { name: '自分の記録', mock: '△' }, 'M-04': { name: '工程表', mock: '○' }, 'M-05': { name: '代理入力', mock: '○' },
 };
 /* 画面ID → URL（App Router） */
 export const SCREEN_PATH: Record<string, string> = {
@@ -217,9 +217,9 @@ export const SCREEN_PATH: Record<string, string> = {
 export const PATH_SCREEN: Record<string, string> = Object.fromEntries(Object.entries(SCREEN_PATH).map(([k, v]) => [v, k]));
 export const MASTERS = ['品目', '工種', '得意先', '作業員', '協力会社', '取引先', '就業ルール', '会社設定'] as const;
 
-/* 職長は担当案件のみ */
-export const myProjects = (s: AppState, role: Role) => s.projects.filter(p => role !== '職長' || p.foreman === 'E1');
-export const mySites = (s: AppState, role: Role) => s.projects.filter(p => p.no && (p.status === '受注' || p.status === '施工中') && (role !== '職長' || p.foreman === 'E1'));
+/* 職長は担当案件のみ（me＝ログインしている人の作業員ID） */
+export const myProjects = (s: AppState, role: Role, me: string | null = null) => s.projects.filter(p => role !== '職長' || p.foreman === me);
+export const mySites = (s: AppState, role: Role, me: string | null = null) => s.projects.filter(p => p.no && (p.status === '受注' || p.status === '施工中') && (role !== '職長' || p.foreman === me));
 export const activeSites = (s: AppState) => s.projects.filter(p => p.no && (p.status === '受注' || p.status === '施工中'));
 export const assignedSites = (s: AppState, wid: string) => s.projects.filter(p => p.no && (p.status === '受注' || p.status === '施工中') && p.members.includes(wid));
 export const todayRec = (s: AppState, wid: string) => s.punches.find(r => r.worker === wid && r.date === TODAY);

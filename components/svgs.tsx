@@ -1,6 +1,7 @@
 /* サンプル画像（打ち合わせメモの写真・工程表）。HTMLモックのSVGをそのまま */
 import React from 'react';
 import type { Project } from '@/lib/types';
+import { TODAY } from '@/lib/data';
 
 export function MemoSVG({ i }: { i: number }) {
   const lines = [['冷却水 往き/還り 50A', '既設から分岐 ×2', '（成形機 #4〜#6）'], ['ルート：天井 梁下', '高さ 4.2m 足場要', '停止は日曜のみ'], ['架台 10か所', 'フランジ接続', '保温なし'], ['搬入口 W3.0m', 'フォーク使用可', '']][i % 4];
@@ -23,7 +24,7 @@ export function SchedSVG({ p, ver }: { p: Project; ver: number }) {
     ? [['旧プレス機 解体', 0, 2], ['搬出（ラフター）', 1.5, 2.5, 1], ['基礎はつり・補修', 2.5, 4], ['新プレス機 搬入', 4, 4.6, 1], ['据付・芯出し', 4.6, 6.5], ['油圧・冷却配管', 5.5, 8], ['追加：油圧配管延長', 7, 8.5], ['試運転・立会', 8.6, 9.4, 1]]
     : [['準備・搬入計画', 0, 2], ['搬入', 2, 3, 1], ['据付', 3, 6], ['配管接続', 5, 8], ['試運転', 8.5, 9.5, 1]];
   const W = 640, rowH = 22, top = 44, left = 150, cols = 10, cw = (W - left - 10) / cols;
-  const start = p.period ? new Date(p.period[0] + 'T00:00:00') : new Date('2026-10-07T00:00:00');
+  const start = p.period ? new Date(p.period[0] + 'T00:00:00') : new Date(TODAY + 'T00:00:00');
   const H = top + tasks.length * rowH + 30;
   return <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="工程表の画像（サンプル）" fontFamily="Meiryo, 'Yu Gothic', sans-serif">
     <rect width={W} height={H} fill="#fff" />

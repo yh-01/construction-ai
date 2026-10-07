@@ -5,11 +5,11 @@
    ========================================================= */
 import type {
   AppState, Project, EstVersion, EstLine, Cost, Punch, Div, Customer, Worker, Partner, Product, Koshu, Vendor, WorkRule,
-  Holiday, BudgetRow, MasterName, Summary, Contact, Flags, Company, Role, Proxy,
+  Holiday, BudgetRow, MasterName, Summary, Contact, Flags, Company, Role, Proxy, User,
 } from './types';
 import {
-  TODAY, SITE_INTERNAL, DEFAULT_RATE, KOSHU, CUSTOMERS, PRODUCTS, PARTNERS, WORKERS, VENDORS, WORK_RULES, COMPANY, HOLIDAYS,
-  PROJECTS_INIT, COSTS_INIT, genPunches, DIVS,
+  TODAY, ANCHOR, SITE_INTERNAL, DEFAULT_RATE, KOSHU, CUSTOMERS, PRODUCTS, PARTNERS, WORKERS, VENDORS, WORK_RULES, COMPANY, HOLIDAYS,
+  PROJECTS_INIT, COSTS_INIT, genPunches, DIVS, USERS,
 } from './data';
 import {
   cust, prod, worker, partner, vendor, isExt, projById, projByNo, custOf, estTotals, budgetRows, groupsOf, latestVer,
@@ -19,6 +19,21 @@ import { toMin, fromMin, norm } from './format';
 
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
 
+/* サンプルデータの日付（ANCHOR 基準）を、実際の今日に合わせてずらす */
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+function daysBetween(a: string, b: string) { return Math.round((new Date(b + 'T00:00:00').getTime() - new Date(a + 'T00:00:00').getTime()) / 86400000); }
+export function shiftDate(d: string, days: number) { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + days); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); }
+function shiftDates<T>(obj: T, days: number): T {
+  if (days === 0) return obj;
+  const walk = (v: unknown): unknown => {
+    if (typeof v === 'string') return DATE_RE.test(v) ? shiftDate(v, days) : v;
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === 'object') { const o: Record<string, unknown> = {}; Object.entries(v as Record<string, unknown>).forEach(([k, x]) => { o[k] = (k === 'id' || k === 'no' || k === 'code') ? x : walk(x); }); return o; }
+    return v;
+  };
+  return walk(obj) as T;
+}
+
 /* ---- 初期状態（モックの initState をそのまま） ---- */
 export function createInitialState(): AppState {
   const s: AppState = {
@@ -26,6 +41,7 @@ export function createInitialState(): AppState {
     nextSeq: 123, schedules: {}, blog: {}, koshu: clone(KOSHU), company: clone(COMPANY), holidays: clone(HOLIDAYS),
     budState: {}, payAdj: {},
     products: clone(PRODUCTS), workers: clone(WORKERS), partners: clone(PARTNERS), vendors: clone(VENDORS), workRules: clone(WORK_RULES),
+    users: clone(USERS),
   };
   Object.values(s.costs).forEach(l => l.forEach(c => { if (!c.vid) { const v = s.vendors.find(x => x.name === c.vendor); if (v) c.sid = v.id; } }));
   s.projects.forEach(p => { if (p.cust && !p.contactId) { const c = cust(s, p.cust); if (c && c.contacts && c.contacts.length) p.contactId = c.contacts[0].id; } });
@@ -59,7 +75,14 @@ export function createInitialState(): AppState {
   // 2026-0118 は受注したばかりで、実行予算はまだ下書き（デモ用）
   s.budState['2026-0118'] = { state: '下書き' };
   s.schedules['2026-0112'].push({ ver: 2, date: '2026-09-25', name: '工程表（9/25版）.png' });
-  return s;
+  return shiftDates(s, daysBetween(ANCHOR, TODAY));
+}
+
+/* ---- 保存・復元（ブラウザの localStorage）。将来は DB に置き換える ---- */
+export const STORAGE_KEY = 'hayate.state.v1';
+export function serialize(s: AppState): string { return JSON.stringify(s); }
+export function deserialize(json: string): AppState | null {
+  try { const s = JSON.parse(json) as AppState; if (!s || !Array.isArray(s.projects) || !Array.isArray(s.users)) return null; return s; } catch { return null; }
 }
 
 /* =========================================================
@@ -199,9 +222,9 @@ export function confirmOrder(s: AppState, pid: string, checked: Record<number, n
 /* =========================================================
    案件詳細（S-05）
    ========================================================= */
-export function resolveProject(s: AppState, id: string | null | undefined, role: Role): Project | undefined {
+export function resolveProject(s: AppState, id: string | null | undefined, role: Role, me: string | null = null): Project | undefined {
   let p = projById(s, id);
-  if (!p || !p.no) p = s.projects.filter(x => role !== '職長' || x.foreman === 'E1').find(x => x.no && x.status === '施工中') || s.projects.find(x => x.no);
+  if (!p || !p.no) p = s.projects.filter(x => role !== '職長' || x.foreman === me).find(x => x.no && x.status === '施工中') || s.projects.find(x => x.no);
   return p;
 }
 export function caseBack(s: AppState, pid: string): string {
@@ -251,16 +274,16 @@ export function deleteCost(s: AppState, no: string, i: number) { (s.costs[no] ||
    ========================================================= */
 export function approve(s: AppState, id: string) { const r = s.punches.find(x => x.id === id)!; r.status = isExt(s, r.worker) ? '確認' : '承認'; return r; }
 export function reject(s: AppState, id: string) { const r = s.punches.find(x => x.id === id)!; r.status = '差戻し'; return r; }
-export function approveAll(s: AppState, date: string, site: string, role: Role): number {
-  const sites = mySites(s, role).map(p => p.no); let k = 0;
+export function approveAll(s: AppState, date: string, site: string, role: Role, me: string | null = null): number {
+  const sites = mySites(s, role, me).map(p => p.no); let k = 0;
   s.punches.forEach(r => { if (r.date === date && r.status === '入力済' && !recCalc(r).open && r.segs.some(sg => site === 'all' ? (role !== '職長' || sites.includes(sg.site)) : sg.site === site)) { r.status = isExt(s, r.worker) ? '確認' : '承認'; k++; } });
   return k;
 }
 export type ProxyForm = { worker: string; site: string; start: string; end: string; brk: number; reason: string };
-export function proxySave(s: AppState, f: ProxyForm) {
+export function proxySave(s: AppState, f: ProxyForm, by: string = 'E1') {
   const r = s.punches.find(x => x.worker === f.worker && x.date === TODAY);
   const brk: Punch['breaks'] = []; if (f.brk > 0) { const bs = Math.max(toMin(f.start), Math.min(toMin('12:00'), toMin(f.end) - f.brk)); brk.push({ start: fromMin(bs), end: fromMin(bs + f.brk) }); }
-  const rec: Punch = { id: '', date: TODAY, worker: f.worker, segs: [{ site: f.site, start: f.start, end: f.end }], breaks: brk, status: '入力済', proxy: { by: 'E1', reason: f.reason } };
+  const rec: Punch = { id: '', date: TODAY, worker: f.worker, segs: [{ site: f.site, start: f.start, end: f.end }], breaks: brk, status: '入力済', proxy: { by, reason: f.reason } };
   if (r) Object.assign(r, { ...rec, id: r.id }); else { rec.id = 'R' + (s.punches.length + 2000); s.punches.push(rec); }
 }
 export function makeBreaks(k: string, start: string, end: string, mins?: number): Punch['breaks'] {
@@ -352,6 +375,29 @@ export function deleteMaster(s: AppState, t: MasterTab, id: string) { const x = 
 export function saveCompany(s: AppState, patch: Partial<Company>) { Object.assign(s.company, patch); }
 export function addHoliday(s: AppState, h: Holiday) { s.holidays.push(h); }
 export function deleteHoliday(s: AppState, i: number): Holiday { return s.holidays.splice(i, 1)[0]; }
+
+/* 見積の版をまとめて保存（画面で編集した下書きを書き戻す） */
+export function saveVersion(s: AppState, pid: string, ei: number, draft: EstVersion, rate: number) {
+  const e = projById(s, pid)?.estimates[ei]; if (!e) return;
+  const i = e.versions.findIndex(x => x.v === draft.v); if (i < 0) return;
+  e.versions[i] = clone(draft); e.rate = rate;
+}
+/* 本人からの修正依頼（M-03）。職長は日次チェックで見て差戻す */
+export function requestFix(s: AppState, id: string, reason: string) { const r = s.punches.find(x => x.id === id); if (r) r.fix = { reason, at: TODAY }; }
+
+/* ---- ユーザー（S-11） ---- */
+export type UserForm = { name: string; loginId: string; role: Role; workerId: string };
+export function saveUser(s: AppState, id: string | null, f: UserForm): string | null {
+  if (!f.name.trim()) return '氏名を入れてください';
+  if (!f.loginId.trim()) return 'ログインIDを入れてください';
+  if (s.users.some(u => u.loginId === f.loginId.trim() && u.id !== id)) return 'このログインIDは使われています';
+  if ((f.role === '社員職人' || f.role === '協力会社' || f.role === '職長') && !f.workerId) return 'この役割は作業員マスタの人を選んでください';
+  const u: User = { id: id || 'U' + (Math.max(0, ...s.users.map(x => Number(x.id.slice(1)) || 0)) + 1), name: f.name.trim(), loginId: f.loginId.trim(), role: f.role, workerId: f.workerId || null };
+  const i = s.users.findIndex(x => x.id === id); if (i >= 0) s.users[i] = { ...s.users[i], ...u }; else s.users.push(u);
+  return null;
+}
+export function toggleUserStop(s: AppState, id: string) { const u = s.users.find(x => x.id === id); if (u) u.stopped = !u.stopped; }
+export function deleteUser(s: AppState, id: string) { const i = s.users.findIndex(x => x.id === id); if (i >= 0) s.users.splice(i, 1); }
 
 export type { BudgetRow, Punch, Project, EstVersion };
 export { SITE_INTERNAL, DIVS };
