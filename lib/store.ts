@@ -8,7 +8,7 @@ import type {
   Holiday, BudgetRow, MasterName, Summary, Contact, Flags, Company, Role, Proxy, User, BudgetLine, BudgetLineKind,
 } from './types';
 import {
-  TODAY, ANCHOR, SITE_INTERNAL, DEFAULT_RATE, KOSHU, CUSTOMERS, PRODUCTS, PARTNERS, WORKERS, VENDORS, WORK_RULES, COMPANY, HOLIDAYS,
+  TODAY, ANCHOR, PREV_MONTH, SITE_INTERNAL, DEFAULT_RATE, KOSHU, CUSTOMERS, PRODUCTS, PARTNERS, WORKERS, VENDORS, WORK_RULES, COMPANY, HOLIDAYS,
   PROJECTS_INIT, COSTS_INIT, genPunches, DIVS, USERS,
 } from './data';
 import {
@@ -38,7 +38,7 @@ function shiftDates<T>(obj: T, days: number): T {
 export function createInitialState(): AppState {
   const s: AppState = {
     customers: clone(CUSTOMERS), projects: clone(PROJECTS_INIT), costs: clone(COSTS_INIT), punches: genPunches(),
-    nextSeq: 123, schedules: {}, bl: {}, payroll: { '2026-09': { gross: '1780000', burden: '267000' } }, koshu: clone(KOSHU), company: clone(COMPANY), holidays: clone(HOLIDAYS),
+    nextSeq: 123, schedules: {}, bl: {}, payroll: {}, koshu: clone(KOSHU), company: clone(COMPANY), holidays: clone(HOLIDAYS),
     budState: {}, payAdj: {},
     products: clone(PRODUCTS), workers: clone(WORKERS), partners: clone(PARTNERS), vendors: clone(VENDORS), workRules: clone(WORK_RULES),
     users: clone(USERS),
@@ -78,7 +78,9 @@ export function createInitialState(): AppState {
   s.bl['2026-0118'].push({ kind: '調整', date: '2026-10-06', div: '労務費', group: '搬入・据付', amount: -144000, cat: '手配変更', reason: '上の外注に振り替えた分の自社人工（6人工）を減らす', who: '田中 誠（施工管理）' });
   s.projects.forEach(p => { if (p.no) syncBudget(s, p); });
   s.schedules['2026-0112'].push({ ver: 2, date: '2026-09-25', name: '工程表（9/25版）.png' });
-  return shiftDates(s, daysBetween(ANCHOR, TODAY));
+  const out = shiftDates(s, daysBetween(ANCHOR, TODAY));
+  out.payroll[PREV_MONTH] = { gross: '1780000', burden: '267000' }; // 先月の給与ソフトの実額（サンプル）
+  return out;
 }
 
 /* ---- 実行予算の明細（v0.1.6） ----

@@ -8,9 +8,10 @@ import { PageHead, TableCount, EmptyRow, MoreMenu, ConfirmModal, type ConfirmSpe
 import { FilterBar, useFilter, useSort, type FilterDef } from '@/components/filter';
 import { MasterModal } from '@/components/masters/master-modal';
 import { CompanySettings } from '@/components/masters/company';
+import { RuleBulkModal } from '@/components/masters/rule-bulk-modal';
 import { MDEF, toggleMasterStop, deleteMaster, type MasterTab } from '@/lib/store';
-import { ROLES, partner, rateOf, ruleName } from '@/lib/calc';
-import { TODAY, FLAG_DEF, FLAG_SHORT } from '@/lib/data';
+import { ROLES, partner, rateOf, ruleName, ruleNextW, ruleVer, ruleNext, wageOf } from '@/lib/calc';
+import { TODAY, FLAG_DEF, FLAG_SHORT, RFIELDS } from '@/lib/data';
 import { num, uniq, fmtD } from '@/lib/format';
 import type { Worker, FlagKey } from '@/lib/types';
 
@@ -39,6 +40,8 @@ function MasterList({ t }: { t: MasterTab }) {
   const [menu, setMenu] = useState<string | null>(null);
   const [edit, setEdit] = useState<{ t: MasterTab; id: string | null } | null>(null);
   const [confirm, setConfirm] = useState<ConfirmSpec | null>(null);
+  const [wsel, setWsel] = useState<Set<string>>(() => new Set());                       // 作業員タブで選んだ社員（就業ルールの一括変更）
+  const [ruleBulk, setRuleBulk] = useState<{ ids: string[]; rule: string } | null>(null); // 就業ルールを変更モーダル
   const stOk = (x: { stopped?: boolean }) => { const v = F.fv('st'); return !v || (v === 'stop') === !!x.stopped; };
 
   const mStop = (id: string) => { const r = act(st => toggleMasterStop(st, t, id)); toast(r.name + ' を' + (r.stopped ? '停止' : '再開') + 'しました'); };
@@ -78,13 +81,19 @@ function MasterList({ t }: { t: MasterTab }) {
     const orgName = (w: Worker) => w.kind === '社員' ? w.org : partner(s, w.org).name;
     defs = [{ k: 'kind', label: '区分', type: 'select', opts: ['社員', '協力会社', '一人親方'] }, { k: 'org', label: '所属', type: 'select', opts: uniq(s.workers.map(orgName)) }, { k: 'emp', label: '雇用形態', type: 'select', opts: ['正社員', '契約社員', 'パート・アルバイト', '役員'] }, { k: 'fl', label: '計算の対象', type: 'select', opts: FLAG_DEF.map(([k, l]) => [k, l] as [string, string]) }, ST_DEF];
     const list = s.workers.filter(w => stOk(w) && F.fText('kw', w.name, w.kana, orgName(w), w.job, w.empNo) && F.fSel('kind', w.kind) && F.fSel('org', orgName(w)) && F.fSel('emp', w.emp || '') && (!F.fv('fl') || (w.flags || {})[F.fv('fl') as FlagKey]));
-    total = s.workers.length; count = list.length; nHead = 7;
-    head = <><Th k="name" label="氏名" /><th>区分・所属</th><th>職種</th><th>雇用・給与形態</th><th>就業ルール</th><th>計算の対象</th><th className="r">単価（日額）</th></>;
+    total = s.workers.length; count = list.length;
+    const selOn = ed; nHead = 8 + (selOn ? 1 : 0);
+    const staffList = list.filter(w => w.kind === '社員');
+    const wselOne = (id: string, on: boolean) => setWsel(prev => { const n = new Set(prev); if (on) n.add(id); else n.delete(id); return n; });
+    const wselAll = (on: boolean) => setWsel(prev => { const n = new Set(prev); s.workers.filter(w => w.kind === '社員' && !w.stopped).forEach(w => { if (on) n.add(w.id); else n.delete(w.id); }); return n; });
+    head = <>{selOn ? <th className="selc"><input type="checkbox" aria-label="表示中の社員をすべて選ぶ" checked={!!staffList.length && staffList.every(w => wsel.has(w.id))} onChange={e => wselAll(e.target.checked)} /></th> : null}<Th k="name" label="氏名" /><th>区分・所属</th><th>職種</th><th>雇用・給与形態</th><th>就業ルール</th><th>計算の対象</th><th className="r">賃金（B）</th><th className="r">標準単価（A）<br /><span style={{ fontWeight: 400 }}>予算・見積用</span></th></>;
     rows = sortBy(list, { name: w => w.kana || w.name }).map(w => { const pt = w.kind !== '社員' ? partner(s, w.org) : null; const r = rateOf(s, w.id, TODAY); const rates = w.rates || [];
-      return <tr key={w.id} className={w.stopped ? 'stopped' : ''}><td><B>{w.name}</B>{stTag(w)}<div className="small muted">{w.kana || ''}{w.empNo ? '　No.' + w.empNo : ''}</div></td>
+      const nx = ruleNextW(w);
+      return <tr key={w.id} className={`${w.stopped ? 'stopped' : ''} ${wsel.has(w.id) ? 'sel' : ''}`}>{selOn ? <td className="selc">{pt ? null : <input type="checkbox" checked={wsel.has(w.id)} onChange={e => wselOne(w.id, e.target.checked)} aria-label={`${w.name}を選ぶ`} />}</td> : null}<td><B>{w.name}</B>{stTag(w)}<div className="small muted">{w.kana || ''}{w.empNo ? '　No.' + w.empNo : ''}</div></td>
         <td><span className={`tag ${pt ? 'ext' : 'staff'}`}>{w.kind}</span><div className="small">{orgName(w)}</div></td><td className="small">{w.job}</td>
-        <td className="small">{pt ? <span className="muted">－（外部）</span> : <>{w.emp || ''}<br />{w.pay || ''}</>}</td><td className="small">{pt ? <span className="muted">持たない</span> : ruleName(s, w.rule)}</td>
+        <td className="small">{pt ? <span className="muted">－（外部）</span> : <>{w.emp || ''}<br />{w.pay || ''}</>}</td><td className="small">{pt ? <span className="muted">持たない</span> : <>{ruleName(s, w.rule)}{nx ? <div className="nextv">→ {ruleName(s, nx.rule)}<br />{fmtD(nx.from)}〜</div> : null}</>}</td>
         <td className="nw">{flagChips(w)}</td>
+        <td className="r num small">{pt ? <span className="muted">－</span> : <>{w.pay || ''} {num(wageOf(w, TODAY))}{w.excl ? <div className="muted">除外手当 {num(w.excl)}</div> : null}</>}</td>
         <td className="r num small">{costVis ? (r ? num(r) : '－') : '－'}<div className="muted">{pt ? '協力会社の単価' : (rates.length > 1 ? '履歴 ' + rates.length + '件' : '')}</div></td>{rowActs(w)}</tr>; });
   }
   if (t === '協力会社') {
@@ -111,10 +120,16 @@ function MasterList({ t }: { t: MasterTab }) {
   }
   if (t === '就業ルール') {
     defs = [ST_DEF];
-    const list = s.workRules.filter(r => stOk(r) && F.fText('kw', r.name)); total = s.workRules.length; count = list.length; nHead = 8;
-    head = <><Th k="name" label="名称" /><th>所定の時間</th><th>休憩</th><th>労働時間制</th><th>休日カレンダー</th><th>残業の数え方</th><th>遅刻・早退</th><th className="r">使っている社員</th></>;
-    rows = list.map(r => <tr key={r.id} className={r.stopped ? 'stopped' : ''}><td><B>{r.name}</B>{stTag(r)}</td><td className="num small nw">{r.start}〜{r.end}<br />{r.hours}時間</td><td className="small">{r.brk}</td><td className="small">{r.system}</td><td className="small">{r.cal}</td><td className="small">{r.ot}</td><td className="small">{r.late}</td>
-      <td className="r small">{brList(s.workers.filter(w => w.rule === r.id).map(w => w.name))}</td>{rowActs(r)}</tr>);
+    const list = s.workRules.filter(r => stOk(r) && F.fText('kw', r.name)); total = s.workRules.length; count = list.length; nHead = 6;
+    head = <><Th k="name" label="名称" /><th>今の内容</th><th>労働時間制・休日</th><th>残業・遅刻</th><th>次の版</th><th>使っている社員</th></>;
+    const rv = (v: object, k: string) => String((v as Record<string, unknown>)[k]);
+    rows = list.map(r => { const v = ruleVer(r, TODAY), nx = ruleNext(r); const ws = s.workers.filter(w => w.rule === r.id);
+      const diff = nx ? RFIELDS.filter(([k]) => rv(nx, k) !== rv(v, k)).map(([k, l], i) => <React.Fragment key={k}>{i ? <br /> : null}{l}：{rv(v, k)} → <b>{rv(nx, k)}</b></React.Fragment>) : [];
+      const ruleMove = () => setRuleBulk({ ids: ws.map(w => w.id), rule: (s.workRules.find(x => x.id !== r.id && !x.stopped) || { id: '' }).id });
+      return <tr key={r.id} className={r.stopped ? 'stopped' : ''}><td><B>{r.name}</B>{stTag(r)}<div className="small muted">版 {r.vers.length}件</div></td>
+        <td className="small nw"><span className="num">{v.start}〜{v.end}</span>（{v.hours}時間）<br />{v.brk}<div className="muted">{fmtD(v.from)}〜</div></td><td className="small">{v.system}<br />{v.cal}</td><td className="small">{v.ot}<br />{v.late}</td>
+        <td className="small">{nx ? <><span className="badge info">{fmtD(nx.from)}〜</span><div style={{ marginTop: 4 }}>{diff.length ? diff : '変更なし'}</div></> : <span className="muted">－</span>}</td>
+        <td className="small">{ws.map(w => w.name).join('、') || '－'}{ed && ws.length ? <div style={{ marginTop: 6 }}><button className="btn btn-secondary btn-sm" onClick={ruleMove}>別のルールへ移す</button></div> : null}</td>{rowActs(r)}</tr>; });
   }
   const cols = nHead + (ed ? 1 : 0);
   return <>
@@ -122,9 +137,11 @@ function MasterList({ t }: { t: MasterTab }) {
       acts={ed ? <button className="btn btn-primary btn-md" onClick={() => setEdit({ t, id: null })}>＋ 新規登録</button> : null} />
     <div className="card"><FilterBar keyName={K} cfg={{ kw: KW[t], quick: defs }} />
       <div className="card-head"><TableCount n={count} total={total} unit="件" />{t === '品目' ? <span className="cs">本番は約1,000品目（AIでドラフトし先方確認で確定）</span> : DESC[t] ? <span className="cs">{DESC[t]}</span> : null}</div>
+      {t === '作業員' && ed && wsel.size ? <div className="bulk"><b>{wsel.size}人を選択中</b><button className="btn btn-secondary btn-sm" onClick={() => setRuleBulk({ ids: [...wsel], rule: 'R2' })}>就業ルールを変更</button><button className="lnk small" onClick={() => setWsel(new Set())}>選択を解除</button></div> : null}
       <div className="tbl"><table><thead><tr>{head}{ed ? <th></th> : null}</tr></thead><tbody>{rows.length ? rows : <EmptyRow cols={cols} onClear={F.clear} />}</tbody></table></div></div>
     <p className="note">停止：新しい見積・打刻・受注などで選べなくなりますが、過去のデータは残ります。削除：使われていないものだけ（間違って登録したとき用）。</p>
     {edit ? <MasterModal key={edit.t + ':' + (edit.id || '')} t={edit.t} id={edit.id} onClose={() => setEdit(null)} /> : null}
     {confirm ? <ConfirmModal spec={confirm} onClose={() => setConfirm(null)} /> : null}
+    {ruleBulk ? <RuleBulkModal ids={ruleBulk.ids} rule={ruleBulk.rule} onClose={() => setRuleBulk(null)} onDone={() => setWsel(new Set())} /> : null}
   </>;
 }

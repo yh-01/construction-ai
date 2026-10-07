@@ -10,10 +10,12 @@ import type { Company, CompanyKey } from '@/lib/types';
 
 /* [キー, ラベル, 種類(sel/num/ro), 選択肢] */
 type CsField = [CompanyKey, string, 'sel' | 'num' | 'ro', string[]?];
-type CsGroup = { id: string; title: string; sub: string; plan1?: boolean; fields: CsField[] };
+type CsGroup = { id: string; title: string; sub: string; plan1?: boolean; fields: CsField[]; note?: string };
 const CS_DEF: CsGroup[] = [
+  { id: 'labor', title: '労務費の計算', sub: '社員の実績の労務費。予算・見積はいつも標準単価（A）', fields: [['laborMethod', '計算の方式', 'sel', ['B（賃金相当：打刻から計算）', 'A（標準単価：人工×標準単価）']], ['burden', '会社負担率（％）【仮・概算】', 'num'], ['bonusRate', '賞与の引当率（％）【仮】', 'num'], ['weekStart', '週のはじまり（週40時間の判定）', 'ro']], note: '案2（勤怠は今のやり方のまま）のときはAにする（Bは颯が勤怠の正本であることが前提）' },
+  { id: 'prem', title: '割増率', sub: '【事実】労働基準法の最低率。就業規則で上乗せしているときは直す', plan1: true, fields: [['premOt', '時間外（1日8時間・週40時間超）％', 'num'], ['premOt60', '時間外のうち月60時間超 ％', 'num'], ['premNight', '深夜（22時〜5時）の上乗せ ％', 'num'], ['premHol', '法定休日 ％', 'num']] },
   { id: 'close', title: '締め', sub: '締めた月の打刻・原価は変えられない', fields: [['close', '勤怠の締め日', 'sel', ['月末', '20日', '25日', '15日']], ['costClose', '原価（月次）の締め', 'sel', ['月末（勤怠と同じ）', '翌月5日', '翌月10日']], ['lockAfter', '締めた後', 'ro']] },
-  { id: 'ninku', title: '人工の換算', sub: '打刻の時間を人工にする決まり（Q6は仮）', fields: [['ninkuH', '1人工の時間', 'num'], ['ninkuUnit', '端数の単位', 'sel', ['0.25', '0.5', '0.1']], ['split', '複数現場の日', 'sel', ['時間で按分', '長くいた現場に1.0']]] },
+  { id: 'ninku', title: '人工の換算', sub: '人工＝実働÷所定時間（社員は就業ルールの所定時間）。0.25は表示の丸めで、社員の金額は分単位で計算。外部は0.25に丸めた人工×常用単価（外注支払と同じ）', fields: [['ninkuH', '1人工の時間', 'num'], ['ninkuUnit', '端数の単位', 'sel', ['0.25', '0.5', '0.1']], ['split', '複数現場の日', 'sel', ['時間で按分', '長くいた現場に1.0']]] },
   { id: 'punch', title: '打刻', sub: '', fields: [['means', '打刻の手段', 'ro'], ['gps', '位置の記録', 'sel', ['出勤・退勤のときに記録', '記録しない']], ['proxy', '代理入力', 'ro'], ['approveBy', '承認の期限', 'sel', ['翌日まで（過ぎたら一覧で警告）', '週末まで', '月末まで']]] },
   { id: 'calc', title: '時間の計算', sub: '案1（颯を勤怠の正本にする）のときだけ使う', plan1: true, fields: [['round', '時刻の丸め', 'sel', ['丸めない（1分単位で集計）', '15分単位（出勤は切り上げ・退勤は切り捨て）']], ['night', '深夜の時間帯（割増25%）', 'ro']] },
   { id: 'ot36', title: '36協定と残業アラート', sub: '建設業は2024年4月から上限規制の対象。協定の内容を入れる', plan1: true, fields: [['m45', '原則の上限（月・時間）', 'num'], ['y360', '原則の上限（年・時間）', 'num'], ['special', '特別条項', 'sel', ['あり', 'なし']], ['spY', '特別条項の上限（年）', 'num'], ['spM', '単月の上限（未満）', 'num'], ['spAvg', '2〜6か月平均の上限', 'num'], ['alert1', '注意を出す（月・時間）', 'num'], ['alert2', '警告を出す（月・時間）', 'num']] },
@@ -35,7 +37,7 @@ export function CompanySettings() {
   const csEdit = (g: CsGroup) => { const v: Record<string, string> = {}; g.fields.forEach(([k]) => { v[k] = String(C[k]); }); setVals(v); setEdit('cs-' + g.id); };
   const csSave = (g: CsGroup) => {
     const patch: Record<string, unknown> = {};
-    g.fields.forEach(([k, , t]) => { if (t === 'ro') return; const v = vals[k]; if (v === undefined) return; patch[k] = t === 'num' ? (Number(v) || C[k]) : v; });
+    g.fields.forEach(([k, , t]) => { if (t === 'ro') return; const v = vals[k]; if (v === undefined) return; patch[k] = t === 'num' ? (v !== '' && isFinite(Number(v)) ? Number(v) : C[k]) : v; });   // 空でなく数値なら保存（0 も保存できる）
     act(st => saveCompany(st, patch as Partial<Company>));
     setEdit(null); toast('「' + g.title + '」を保存しました');
   };
@@ -45,7 +47,7 @@ export function CompanySettings() {
         : t === 'sel' ? <label key={k}>{l}<select id={'cs-' + k} value={vals[k] ?? String(C[k])} onChange={e => setVals({ ...vals, [k]: e.target.value })}>{uniq([String(C[k]), ...(o || [])]).map(x => <option key={x}>{x}</option>)}</select></label>
         : <label key={k}>{l}<input id={'cs-' + k} value={vals[k] ?? String(C[k])} onChange={e => setVals({ ...vals, [k]: e.target.value })} inputMode="decimal" /></label>)}</div>
         <div className="row" style={{ justifyContent: 'flex-end', marginTop: 12 }}><button className="btn btn-secondary btn-md" onClick={() => setEdit(null)}>キャンセル</button><button className="btn btn-primary btn-md" onClick={() => csSave(g)}>保存</button></div></>
-        : <dl className="kv">{g.fields.map(([k, l]) => <React.Fragment key={k}><dt>{l}</dt><dd>{String(C[k])}{HOURS_KEYS.includes(k) ? ' 時間' : k === 'ninkuH' ? ' 時間＝1.0人工' : ''}</dd></React.Fragment>)}</dl>}</div></div>; };
+        : <dl className="kv">{g.fields.map(([k, l]) => <React.Fragment key={k}><dt>{l}</dt><dd>{String(C[k])}{HOURS_KEYS.includes(k) ? ' 時間' : k === 'ninkuH' ? ' 時間＝1.0人工' : ''}</dd></React.Fragment>)}</dl>}{g.note ? <p className="note" style={{ margin: '8px 0 0' }}>{g.note}</p> : null}</div></div>; };
   const holDel = (i: number) => { const h = act(st => deleteHoliday(st, i)); toast(h.name + ' を削除しました'); };
 
   return <>

@@ -4,7 +4,7 @@ import React, { useEffect } from 'react';
 import { useStore } from '@/lib/store-context';
 import { useNav } from '@/components/shell';
 import { PageHead, StatusBadge } from '@/components/ui';
-import { mySites, worker, partner, isExt, recCalc, recWarnings, isFinal, projByNo, siteName, siteShort } from '@/lib/calc';
+import { mySites, worker, partner, isExt, recCalc, recWarnings, isFinal, projByNo, siteName, siteShort, ninkuDisp } from '@/lib/calc';
 import { approve, reject, approveAll } from '@/lib/store';
 import { TODAY, SITE_INTERNAL } from '@/lib/data';
 import { fromMin, hm, nk, md, mdw, fmtDate } from '@/lib/format';
@@ -36,7 +36,7 @@ export default function ApprovalsPage() {
 
   const doApprove = (id: string) => {
     const r = act(st => approve(st, id));
-    const n = Object.entries(recCalc(r).bySite).map(([k, v]) => k + ' ' + nk(v) + '人工').join('、');
+    const n = Object.keys(recCalc(r).bySite).map(k => k + ' ' + nk(ninkuDisp(s, r, k)) + '人工').join('、');
     toast(worker(s, r.worker).name + 'さんの' + md(r.date) + 'を' + (isExt(s, r.worker) ? '確認' : '承認') + 'しました（' + n + '）。ロックし、労務費に反映');
   };
   const doReject = (id: string) => { const r = act(st => reject(st, id)); toast(worker(s, r.worker).name + 'さんの記録を差戻しました。本人のスマホに通知されます（想定）'); };
@@ -56,7 +56,7 @@ export default function ApprovalsPage() {
       <tbody>{recs.length ? recs.map(r => {
         const w = worker(s, r.worker), c = recCalc(r), warns = recWarnings(s, r), ext = isExt(s, r.worker);
         const locked = isFinal(r);
-        const n = site === 'all' ? c.dayNinku : (c.bySite[site] || 0);
+        const n = ninkuDisp(s, r, site);   // 社員は実働÷所定時間を0.25に丸めて表示
         let ops: React.ReactNode = null;
         if (ed && !locked) {
           ops = <>
