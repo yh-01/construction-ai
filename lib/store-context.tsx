@@ -68,6 +68,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [version, setVersion] = useState(0);
   const [hydrated, setHydrated] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+  const userRef = useRef<User | null>(null); userRef.current = user;
   const [ui, setUiState] = useState<UIState>(initialUI);
   const [msg, setMsg] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -83,7 +84,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const persist = useCallback(() => { if (saveTimer.current) clearTimeout(saveTimer.current); saveTimer.current = setTimeout(() => { if (ref.current) ls.set(STORAGE_KEY, serialize(ref.current)); }, 250); }, []);
-  const act = useCallback(<T,>(fn: (s: AppState) => T): T => { const r = fn(ref.current!); setVersion(v => v + 1); persist(); return r; }, [persist]);
+  const act = useCallback(<T,>(fn: (s: AppState) => T): T => {
+    const r = fn(ref.current!); setVersion(v => v + 1); persist();
+    // ログイン中のユーザー自身が編集されたら（役割・紐づく作業員）、表示にも反映する
+    const u = userRef.current; if (u) { const nu = ref.current!.users.find(x => x.id === u.id); if (nu && (nu.role !== u.role || nu.workerId !== u.workerId || nu.name !== u.name)) { setUser(nu); setUiState(x => ({ ...x, role: nu.role, me: nu.workerId })); } }
+    return r;
+  }, [persist]);
   const reset = useCallback(() => { ref.current = createInitialState(); ls.del(STORAGE_KEY); setUiState(u => ({ ...initialUI(), role: u.role, me: u.me })); setVersion(v => v + 1); }, []);
   const login = useCallback((userId: string) => { const u = ref.current!.users.find(x => x.id === userId && !x.stopped) || null; if (u) { setUser(u); ls.set(USER_KEY, u.id); setUiState(x => ({ ...initialUI(), role: u.role, me: u.workerId })); } return u; }, []);
   const logout = useCallback(() => { setUser(null); ls.del(USER_KEY); setUiState(initialUI()); }, []);
