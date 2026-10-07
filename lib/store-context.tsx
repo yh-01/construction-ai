@@ -72,7 +72,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [ui, setUiState] = useState<UIState>(initialUI);
   const [msg, setMsg] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /* 起動時：保存してあるデータとログイン状態を復元 */
   useEffect(() => {
@@ -83,7 +82,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setHydrated(true); setVersion(v => v + 1);
   }, []);
 
-  const persist = useCallback(() => { if (saveTimer.current) clearTimeout(saveTimer.current); saveTimer.current = setTimeout(() => { if (ref.current) ls.set(STORAGE_KEY, serialize(ref.current)); }, 250); }, []);
+  /* 書き換えるたびに同期的に保存する（直後にリロード・タブを閉じても失われないように） */
+  const persist = useCallback(() => { if (ref.current) ls.set(STORAGE_KEY, serialize(ref.current)); }, []);
   const act = useCallback(<T,>(fn: (s: AppState) => T): T => {
     const r = fn(ref.current!); setVersion(v => v + 1); persist();
     // ログイン中のユーザー自身が編集されたら（役割・紐づく作業員）、表示にも反映する
@@ -97,7 +97,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const setF = useCallback((key: string, k: string, v: string) => { setUiState(u => ({ ...u, f: { ...u.f, [key]: { ...(u.f[key] || {}), [k]: v } } })); }, []);
   const clearF = useCallback((key: string) => { setUiState(u => ({ ...u, f: { ...u.f, [key]: {} } })); }, []);
   const toast = useCallback((m: string) => { setMsg(m); if (timer.current) clearTimeout(timer.current); timer.current = setTimeout(() => setMsg(null), 3200); }, []);
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); if (saveTimer.current) clearTimeout(saveTimer.current); }, []);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   const value = useMemo<Ctx>(() => ({ s: ref.current!, version, hydrated, user, login, logout, act, reset, ui, setUi, setF, clearF, toast }), [version, hydrated, user, login, logout, act, reset, ui, setUi, setF, clearF, toast]);
   return <StoreCtx.Provider value={value}>{children}{msg && <div id="toast" className="toast" role="status">{msg}</div>}</StoreCtx.Provider>;

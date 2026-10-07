@@ -91,7 +91,7 @@ export default function MobilePage() {
 
   /* ---- M-05 代理入力（職長） ---- */
   const m05 = () => {
-    const sites = mySites(s, ui.role);
+    const sites = mySites(s, ui.role, ui.me);
     const ws = [...new Set(sites.flatMap(p => p.members))].filter(id => id !== wid);
     const f = { ...ui.m05 };
     if (!f.worker) f.worker = ws.includes('X2') ? 'X2' : ws[0];
