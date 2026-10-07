@@ -4,8 +4,8 @@
    - 各関数は状態を直接書き換える（呼び出し側の StoreProvider が再描画を起こす）
    ========================================================= */
 import type {
-  AppState, Project, EstVersion, EstLine, Cost, Punch, Div, Customer, Worker, Partner, Product, Koshu, Vendor, WorkRule,
-  Holiday, BudgetRow, MasterName, Summary, Contact, Flags, Company, Role, Proxy, User,
+  AppState, Project, EstVersion, EstLine, Cost, Punch, Div, Customer, Worker, Partner, Product, Koshu, Vendor, WorkRule, RuleVer,
+  Holiday, BudgetRow, MasterName, Summary, Contact, Flags, Company, Role, Proxy, User, BudgetLine, BudgetLineKind,
 } from './types';
 import {
   TODAY, ANCHOR, SITE_INTERNAL, DEFAULT_RATE, KOSHU, CUSTOMERS, PRODUCTS, PARTNERS, WORKERS, VENDORS, WORK_RULES, COMPANY, HOLIDAYS,
@@ -13,7 +13,7 @@ import {
 } from './data';
 import {
   cust, prod, worker, partner, vendor, isExt, projById, projByNo, custOf, estTotals, budgetRows, groupsOf, latestVer,
-  orderables, recCalc, isFinal, budDraft, punchState, todayRec, BREAKS, mySites,
+  orderables, recCalc, isFinal, budDraft, punchState, todayRec, BREAKS, mySites, ruleOfW, ruleVer,
 } from './calc';
 import { toMin, fromMin, norm } from './format';
 
@@ -38,7 +38,7 @@ function shiftDates<T>(obj: T, days: number): T {
 export function createInitialState(): AppState {
   const s: AppState = {
     customers: clone(CUSTOMERS), projects: clone(PROJECTS_INIT), costs: clone(COSTS_INIT), punches: genPunches(),
-    nextSeq: 123, schedules: {}, blog: {}, koshu: clone(KOSHU), company: clone(COMPANY), holidays: clone(HOLIDAYS),
+    nextSeq: 123, schedules: {}, bl: {}, payroll: { '2026-09': { gross: '1780000', burden: '267000' } }, koshu: clone(KOSHU), company: clone(COMPANY), holidays: clone(HOLIDAYS),
     budState: {}, payAdj: {},
     products: clone(PRODUCTS), workers: clone(WORKERS), partners: clone(PARTNERS), vendors: clone(VENDORS), workRules: clone(WORK_RULES),
     users: clone(USERS),
@@ -48,7 +48,7 @@ export function createInitialState(): AppState {
   s.projects.forEach(p => p.estimates.forEach(e => { e.rate = p.cust ? (cust(s, p.cust) as Customer).rate : DEFAULT_RATE; }));
   s.projects.forEach(p => {
     if (!p.no) return;
-    p.contract = []; p.budget = [];
+    p.contract = []; p.budget = []; s.bl[p.no] = [];
     p.estimates.forEach(e => {
       const v = e.versions.find(x => x.state === '受注'); if (!v) return;
       const t = estTotals(s, v.lines, e.rate);
@@ -58,31 +58,45 @@ export function createInitialState(): AppState {
         s.budState[p.no!] = { state: '確定', at: v.date, by: '川口（管理者）' };
       } else {
         p.contract!.push({ no: e.branchNo!, label: '追加（' + e.no + ' 第' + v.v + '版）', amount: t.sub });
-        (s.blog[p.no!] = s.blog[p.no!] || []).push({ date: v.date, who: '長谷川（営業）', reason: '追加工事 ' + e.branchNo + '（' + e.no + ' 第' + v.v + '版）を受注', amount: budgetRows(s, v.lines, e.rate).reduce((t2, r) => t2 + r.init, 0) });
         budgetRows(s, v.lines, e.rate).forEach(r => {
           let row = p.budget!.find(b => b.div === r.div && b.group === r.group);
           if (!row) { row = { div: r.div, group: r.group, init: 0, change: 0, est: 0 }; p.budget!.push(row); }
-          row.change += r.init; row.est = (row.est || 0) + r.init;
+          row.est = (row.est || 0) + r.init;
+          s.bl[p.no!].push({ kind: '変更', date: v.date, div: r.div, group: r.group, amount: r.init, cat: '契約変更', reason: '追加工事 ' + e.branchNo + '（' + e.no + ' 第' + v.v + '版）を受注', who: '自動（受注時）', auto: true });
         });
       }
     });
     s.schedules[p.no] = [{ ver: 1, date: p.period ? p.period[0] : TODAY, name: '工程表（初版）.png' }];
   });
-  projByNo(s, '2026-0112')!.budget!.push({ div: '外注費', group: '電気工事', init: 0, change: 400000, est: 0 });
-  s.blog['2026-0112'].unshift({ date: '2026-08-24', who: '佐藤 健一（施工管理）', reason: '電気工事（外注）を予算に追加。見積に含まれていなかったため', amount: 400000 });
-  projByNo(s, '2026-0104')!.budget!.push({ div: '外注費', group: '電気工事', init: 0, change: 150000, est: 0 });
-  s.blog['2026-0104'] = s.blog['2026-0104'] || []; s.blog['2026-0104'].push({ date: '2026-07-10', who: '田中 誠（施工管理）', reason: 'ポンプ電源の移設（外注）を予算に追加。見積に含まれていなかったため', amount: 150000 });
-  // 2026-0118 は受注したばかりで、実行予算はまだ下書き（デモ用）
+  s.bl['2026-0112'].push({ kind: '変更', date: '2026-08-24', div: '外注費', group: '電気工事', amount: 400000, cat: '見積漏れ', reason: 'プレス機の電源切替（外注）が見積に含まれていなかった', who: '佐藤 健一（施工管理）' });
+  s.bl['2026-0112'].push({ kind: '変更', date: '2026-09-20', div: '経費', group: '撤去・搬出', amount: 6000, cat: '単価差', reason: 'ラフター回送費の値上がり', who: '佐藤 健一（施工管理）' });
+  s.bl['2026-0104'].push({ kind: '変更', date: '2026-07-10', div: '外注費', group: '電気工事', amount: 150000, cat: '見積漏れ', reason: 'ポンプ電源の移設（外注）が見積に含まれていなかった', who: '田中 誠（施工管理）' });
+  s.bl['2026-0114'].push({ kind: '変更', date: '2026-09-30', div: '経費', group: '仮設・運搬', amount: 30000, cat: '手配変更', reason: '高所作業車を10日→12日に延長', who: '田中 誠（施工管理）' });
+  // 2026-0118 は受注したばかりで、実行予算はまだ下書き。確定前の調整の例
   s.budState['2026-0118'] = { state: '下書き' };
+  s.bl['2026-0118'].push({ kind: '調整', date: '2026-10-06', div: '外注費', group: '搬入・据付', amount: 180000, cat: '手配変更', reason: '反応槽の吊り込みを浜鳶工業に一部外注（協力会社見積 10/5）', who: '田中 誠（施工管理）' });
+  s.bl['2026-0118'].push({ kind: '調整', date: '2026-10-06', div: '労務費', group: '搬入・据付', amount: -144000, cat: '手配変更', reason: '上の外注に振り替えた分の自社人工（6人工）を減らす', who: '田中 誠（施工管理）' });
+  s.projects.forEach(p => { if (p.no) syncBudget(s, p); });
   s.schedules['2026-0112'].push({ ver: 2, date: '2026-09-25', name: '工程表（9/25版）.png' });
   return shiftDates(s, daysBetween(ANCHOR, TODAY));
 }
 
+/* ---- 実行予算の明細（v0.1.6） ----
+   当初予算 ＝ 見積の原価（受注時に作る）＋ 確定前の「調整」明細。確定した時点で固定
+   変更予算 ＝ 確定後の「変更」明細の合計（1件ずつ、理由区分つき） */
+export function syncBudget(s: AppState, p: Project) {
+  const L = s.bl[p.no!] = s.bl[p.no!] || []; const draft = (s.budState[p.no!] || {}).state === '下書き'; p.budget = p.budget || [];
+  L.forEach(l => { if (!p.budget!.some(b => b.div === l.div && b.group === l.group)) p.budget!.push({ div: l.div, group: l.group, init: 0, change: 0, est: 0 }); });
+  p.budget.forEach(b => { const m = L.filter(l => l.div === b.div && l.group === b.group);
+    if (draft) b.init = (b.est || 0) + m.filter(l => l.kind === '調整').reduce((t, l) => t + l.amount, 0);
+    b.change = m.filter(l => l.kind === '変更').reduce((t, l) => t + l.amount, 0); });
+}
+
 /* ---- 保存・復元（ブラウザの localStorage）。将来は DB に置き換える ---- */
-export const STORAGE_KEY = 'hayate.state.v1';
+export const STORAGE_KEY = 'hayate.state.v2';
 export function serialize(s: AppState): string { return JSON.stringify(s); }
 export function deserialize(json: string): AppState | null {
-  try { const s = JSON.parse(json) as AppState; if (!s || !Array.isArray(s.projects) || !Array.isArray(s.users)) return null; return s; } catch { return null; }
+  try { const s = JSON.parse(json) as AppState; if (!s || !Array.isArray(s.projects) || !Array.isArray(s.users) || !s.bl || !s.company || !('laborMethod' in s.company)) return null; return s; } catch { return null; }
 }
 
 /* =========================================================
@@ -202,7 +216,7 @@ export function confirmOrder(s: AppState, pid: string, checked: Record<number, n
     p.no = no; p.status = '受注';
     p.contract = sel.map(x => ({ no, label: '当初（' + x.e.no + ' 第' + x.v.v + '版）', amount: estTotals(s, x.v.lines, x.e.rate).sub }));
     p.budget = []; sel.forEach(x => budgetRows(s, x.v.lines, x.e.rate).forEach(r => { let row = p.budget!.find(b => b.div === r.div && b.group === r.group); if (!row) { row = { div: r.div, group: r.group, init: 0, change: 0, est: 0 }; p.budget!.push(row); } row.init += r.init; row.est = (row.est || 0) + r.init; }));
-    s.budState[no] = { state: '下書き' };
+    s.budState[no] = { state: '下書き' }; s.bl[no] = []; syncBudget(s, p);
     p.members = p.foreman ? [p.foreman] : [];
     if (!p.period) p.period = [TODAY, TODAY];
     s.schedules[no] = [];
@@ -211,9 +225,9 @@ export function confirmOrder(s: AppState, pid: string, checked: Record<number, n
   const tp = projByNo(s, target)!;
   tp.branches = tp.branches || []; const bno = tp.no + '-' + String(tp.branches.length + 1).padStart(2, '0'); tp.branches.push(bno);
   sel.forEach(x => { tp.contract!.push({ no: bno, label: '追加（' + x.e.no + ' 第' + x.v.v + '版）', amount: estTotals(s, x.v.lines, x.e.rate).sub });
-    const draft = budDraft(s, tp); let add = 0;
-    budgetRows(s, x.v.lines, x.e.rate).forEach(r => { let row = tp.budget!.find(b => b.div === r.div && b.group === r.group); if (!row) { row = { div: r.div, group: r.group, init: 0, change: 0, est: 0 }; tp.budget!.push(row); } if (draft) row.init += r.init; else row.change += r.init; row.est = (row.est || 0) + r.init; add += r.init; });
-    if (!draft) (s.blog[tp.no!] = s.blog[tp.no!] || []).push({ date: TODAY, who: '川口（管理者）', reason: '追加工事 ' + bno + '（' + x.e.no + ' 第' + x.v.v + '版）を受注', amount: add }); });
+    budgetRows(s, x.v.lines, x.e.rate).forEach(r => { let row = tp.budget!.find(b => b.div === r.div && b.group === r.group); if (!row) { row = { div: r.div, group: r.group, init: 0, change: 0, est: 0 }; tp.budget!.push(row); } row.est = (row.est || 0) + r.init;
+      if (!budDraft(s, tp)) (s.bl[tp.no!] = s.bl[tp.no!] || []).push({ kind: '変更', date: TODAY, div: r.div, group: r.group, amount: r.init, cat: '契約変更', reason: '追加工事 ' + bno + '（' + x.e.no + ' 第' + x.v.v + '版）を受注', who: '自動（受注時）', auto: true }); });
+    syncBudget(s, tp); });
   p.estimates.forEach(e => { e.branchOf = tp.no!; e.branchNo = bno; tp.estimates.push(e); });
   s.projects.splice(s.projects.indexOf(p), 1);
   return { no: bno, projectId: tp.id, draft: budDraft(s, tp), branch: true };
@@ -244,26 +258,21 @@ export function addMember(s: AppState, pid: string, wid: string) { const p = pro
 export function removeMember(s: AppState, pid: string, wid: string) { const p = projById(s, pid)!; p.members = p.members.filter(x => x !== wid); }
 export function addSchedule(s: AppState, no: string, mdLabel: string): number { const vs = s.schedules[no] = s.schedules[no] || []; vs.push({ ver: vs.length + 1, date: TODAY, name: '工程表（' + mdLabel + '版）.png' }); return vs.length; }
 
-/* 実行予算 */
-export function setBudgetInit(s: AppState, pid: string, i: number, n: number) { const p = projById(s, pid)!; if (p.budget && p.budget[i]) p.budget[i].init = n; }
-export function saveBudgetChanges(s: AppState, pid: string, changes: Record<number, number>, reason: string): number {
-  const p = projById(s, pid)!; let diff = 0;
-  Object.entries(changes).forEach(([i, n]) => { const b = p.budget![Number(i)]; if (!b) return; diff += n - b.change; b.change = n; });
-  if (diff !== 0) (s.blog[p.no!] = s.blog[p.no!] || []).push({ date: TODAY, who: '川口（管理者）', reason, amount: diff });
-  return diff;
+/* 実行予算：調整（確定前）・変更（確定後）の明細 */
+export type BudgetLineForm = { kind: BudgetLineKind; date: string; div: Div; group: string; amount: number; cat: string; reason: string; who: string };
+export function addBudgetLine(s: AppState, pid: string, f: BudgetLineForm): BudgetLine {
+  const p = projById(s, pid)!; const l: BudgetLine = { kind: f.kind, date: f.date || TODAY, div: f.div, group: f.group, amount: f.amount, cat: f.cat, reason: f.reason.trim(), who: f.who };
+  (s.bl[p.no!] = s.bl[p.no!] || []).push(l); syncBudget(s, p); return l;
 }
-export function fixBudget(s: AppState, pid: string) { const p = projById(s, pid)!; s.budState[p.no!] = { state: '確定', at: TODAY, by: '川口（管理者）' }; }
-export function addBudgetRow(s: AppState, pid: string, div: Div, group: string, amount: number) {
-  const p = projById(s, pid)!; p.budget = p.budget || [];
-  let row = p.budget.find(b => b.div === div && b.group === group); if (!row) { row = { div, group, init: 0, change: 0, est: 0 }; p.budget.push(row); } row.init += amount;
-}
+export function deleteBudgetLine(s: AppState, pid: string, i: number): BudgetLine | undefined { const p = projById(s, pid)!; const l = (s.bl[p.no!] || []).splice(i, 1)[0]; syncBudget(s, p); return l; }
+export function fixBudget(s: AppState, pid: string, by: string) { const p = projById(s, pid)!; syncBudget(s, p); s.budState[p.no!] = { state: '確定', at: TODAY, by }; syncBudget(s, p); }
 
 /* 原価の明細 */
 export type CostForm = { date: string; cat: Div; group: string; ven: string; memo: string; amount: string; doc: string };
 export function saveCost(s: AppState, no: string, f: CostForm, idx: number): Cost {
   const a = Number(String(f.amount).replace(/[,，]/g, ''));
   const e: Cost = { date: f.date || TODAY, group: f.group || '', cat: f.cat, memo: f.memo || '', amount: a, vendor: '' }; if (f.doc) e.doc = f.doc;
-  if (f.ven.startsWith('P:')) { e.vid = f.ven.slice(2); e.vendor = partner(s, e.vid).name; } else { e.sid = f.ven.slice(2); e.vendor = vendor(s, e.sid).name; }
+  if (f.ven.startsWith('P:')) { e.vid = f.ven.slice(2); e.vendor = partner(s, e.vid).name; } else if (f.ven.startsWith('W:')) { e.wid = f.ven.slice(2); e.vendor = worker(s, e.wid).name; } else { e.sid = f.ven.slice(2); e.vendor = vendor(s, e.sid).name; }
   const list = s.costs[no] = s.costs[no] || []; if (idx >= 0) list[idx] = e; else list.push(e);
   return e;
 }
@@ -323,7 +332,7 @@ export const MDEF: Record<Exclude<MasterName, '会社設定'>, MasterDef> = {
   '作業員': { list: s => s.workers, key: 'id', name: x => anyX(x).name, used: (s, x) => s.punches.some(r => r.worker === anyX(x).id) || s.projects.some(p => p.members.includes(anyX(x).id)), usedMsg: '打刻・配置で使われています' },
   '協力会社': { list: s => s.partners, key: 'id', name: x => anyX(x).name, used: (s, x) => s.workers.some(w => w.org === anyX(x).id) || Object.values(s.costs).some(l => l.some(c => c.vid === anyX(x).id)), usedMsg: '作業員・原価実績で使われています' },
   '取引先': { list: s => s.vendors, key: 'id', name: x => anyX(x).name, used: (s, x) => Object.values(s.costs).some(l => l.some(c => c.sid === anyX(x).id)), usedMsg: '原価の明細で使われています' },
-  '就業ルール': { list: s => s.workRules, key: 'id', name: x => anyX(x).name, used: (s, x) => s.workers.some(w => w.rule === anyX(x).id), usedMsg: '社員に設定されています' },
+  '就業ルール': { list: s => s.workRules, key: 'id', name: x => anyX(x).name, used: (s, x) => s.workers.some(w => w.rule === anyX(x).id || (w.ruleHist || []).some(h => h.rule === anyX(x).id)), usedMsg: '社員に設定されています（過去の分も含む）' },
 };
 export type MasterTab = keyof typeof MDEF;
 export function findMaster(s: AppState, t: MasterTab, v: string): MasterItem | undefined { const d = MDEF[t]; return d.list(s).find(x => String(anyX(x)[d.key]) === String(v)); }
@@ -333,20 +342,30 @@ export function masterDraft(s: AppState, t: MasterTab, id: string | null): Maste
   if (!id) {
     const NEWD: Record<MasterTab, () => MasterDraft> = {
       '得意先': () => ({ contacts: [{ name: '', dept: '', email: '', tel: '' }], rate: DEFAULT_RATE }),
-      '作業員': () => ({ kind: '社員', org: '建設事業部', rateFrom: TODAY, means: 'スマホ', emp: '正社員', pay: '日給月給', rule: 'R1', approver: '川口（管理者）', hired: TODAY, flags: { punch: true, att: true, cost: true, ot: true }, lvBase: '', lvGrant: '', lvUsed: '' }),
+      '作業員': () => ({ kind: '社員', org: '建設事業部', rateFrom: TODAY, wageFrom: TODAY, excl: 0, means: 'スマホ', emp: '正社員', pay: '日給月給', rule: 'R1', approver: '川口（管理者）', hired: TODAY, flags: { punch: true, att: true, cost: true, ot: true }, lvBase: '', lvGrant: '', lvUsed: '' }),
       '協力会社': () => ({ type: '法人', close: '月末', pay: '翌月末', contract: '常用・請負', ot: '人工に足す（0.25単位）', fee: '先方負担', safety: 0, wht: '不要', checker: '職長', rateFrom: TODAY }),
       '取引先': () => ({ cat: '材料', close: '月末', pay: '翌月末' }),
-      '就業ルール': () => ({ start: '08:00', end: '17:00', hours: 8, brk: '昼60分', system: '通常', cal: '現場カレンダー', ot: '1日8時間超・週40時間超', late: '判定する' }),
+      '就業ルール': () => ({ from: TODAY, days: 255, start: '08:00', end: '17:00', hours: 8, brk: '昼60分', system: '通常', cal: '現場カレンダー', ot: '1日8時間超・週40時間超', late: '判定する' }),
       '品目': () => ({ cat: '材料' }), '工種': () => ({}),
     };
     return NEWD[t]();
   }
   const x = findMaster(s, t, id)!; const d: MasterDraft = clone(x) as MasterDraft;
-  if (t === '作業員' && (x as Worker).kind === '社員') { const w = x as Worker; const r = (w.rates || [])[(w.rates || []).length - 1]; d.rateV = r ? r.v : ''; d.rateFrom = r ? r.from : TODAY; d.lvBase = (w.lv || {}).base || ''; d.lvGrant = (w.lv || {}).grant ?? ''; d.lvUsed = (w.lv || {}).used ?? ''; }
+  if (t === '作業員' && (x as Worker).kind === '社員') { const w = x as Worker; const r = (w.rates || [])[(w.rates || []).length - 1]; d.rateV = r ? r.v : ''; d.rateFrom = r ? r.from : TODAY; const g = (w.wage || [])[(w.wage || []).length - 1]; d.wageV = g ? g.v : ''; d.wageFrom = g ? g.from : TODAY; d.excl = w.excl || 0; d.lvBase = (w.lv || {}).base || ''; d.lvGrant = (w.lv || {}).grant ?? ''; d.lvUsed = (w.lv || {}).used ?? ''; }
+  if (t === '就業ルール') { const r = x as WorkRule; const v = r.vers[r.vers.length - 1]; Object.assign(d, v, { from: nextMonthFirst() }); delete d.note; }
   if (t === '協力会社') { const pt = x as Partner; const h = pt.rateHist || []; d.rateFrom = h.length ? h[h.length - 1].from : TODAY; d.rate = pt.rate ?? ''; d.half = pt.half ?? ''; }
   if (t === '得意先' && !(d.contacts || []).length) d.contacts = [{ name: '', dept: '', email: '', tel: '' }];
   return d;
 }
+/** 翌月1日（版・付け替えの適用開始日の既定） */
+export function nextMonthFirst(): string { const [y, m] = TODAY.split('-').map(Number); const d = new Date(y, m, 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-01'; }
+/** 社員の就業ルールを適用開始日つきで付け替える */
+export function setRule(w: Worker, rule: string, from: string) {
+  if (ruleOfW(w, from) === rule && !(w.ruleHist || []).some(x => x.from > from)) return;
+  const h = (w.ruleHist = w.ruleHist || []); const same = h.find(x => x.from === from); if (same) same.rule = rule; else h.push({ from, rule });
+  h.sort((a, b) => a.from.localeCompare(b.from)); w.rule = ruleOfW(w, TODAY);
+}
+export function setRules(s: AppState, ids: string[], rule: string, from: string) { ids.forEach(id => { const w = s.workers.find(x => x.id === id); if (w) setRule(w, rule, from || TODAY); }); }
 function pushHist(arr: { from: string; v: number }[], v: number, from: string) { const last = arr[arr.length - 1]; if (last && last.from === from) last.v = v; else if (!last || last.v !== v) arr.push({ from, v }); }
 const str = (v: unknown) => (v === undefined || v === null) ? '' : String(v);
 export function saveMaster(s: AppState, t: MasterTab, id: string | null, d: MasterDraft): string | null {
@@ -360,19 +379,25 @@ export function saveMaster(s: AppState, t: MasterTab, id: string | null, d: Mast
   if (t === '工種') Object.assign(x, { name: d.name, desc: d.desc || '' });
   if (t === '得意先') Object.assign(x, { name: d.name, short: d.short || d.name, zip: d.zip || '', addr: d.addr || '', tel: d.tel || '', rate: Number(d.rate) || DEFAULT_RATE, note: d.note || '', contacts: (d.contacts || []).filter(k => k.name).map((k, i) => ({ ...k, id: k.id || x!.id + '-' + i })) });
   if (t === '作業員') { Object.assign(x, { name: d.name, kana: d.kana || '', kind: d.kind, org: d.org, job: d.job || '', means: d.means || 'スマホ' });
-    if (d.kind === '社員') { Object.assign(x, { empNo: d.empNo || '', hired: d.hired || '', left: d.left || '', emp: d.emp, pay: d.pay, rule: d.rule, approver: d.approver, flags: { ...(d.flags as Flags) }, lv: { base: d.lvBase || '', grant: Number(d.lvGrant) || 0, used: Number(d.lvUsed) || 0 } });
+    if (d.kind === '社員') { Object.assign(x, { empNo: d.empNo || '', hired: d.hired || '', left: d.left || '', emp: d.emp, pay: d.pay || '日給月給', approver: d.approver, flags: { ...(d.flags as Flags) }, lv: { base: d.lvBase || '', grant: Number(d.lvGrant) || 0, used: Number(d.lvUsed) || 0 } });
+      const w = x as unknown as Worker; if (d.rule && d.rule !== w.rule) setRule(w, str(d.rule), w.ruleHist && w.ruleHist.length ? TODAY : (str(d.hired) || TODAY));
+      w.excl = Number(d.excl) || 0; w.wage = w.wage || []; if (d.wageV !== '' && d.wageV !== undefined) pushHist(w.wage, Number(d.wageV) || 0, str(d.wageFrom) || TODAY);
       x.rates = x.rates || []; if (d.rateV !== '' && d.rateV !== undefined) pushHist(x.rates as { from: string; v: number }[], Number(d.rateV) || 0, str(d.rateFrom) || TODAY); }
     else { delete x.rates; x.flags = { punch: true, att: false, cost: true, ot: false }; ['emp', 'pay', 'rule', 'approver', 'lv', 'empNo', 'hired'].forEach(k => delete x![k]); } }
   if (t === '協力会社') { const rate = d.rate === '' || d.rate === undefined || d.rate === null ? null : Number(d.rate);
     Object.assign(x, { name: d.name, type: d.type, person: d.person || '', tel: d.tel || '', addr: d.addr || '', invNo: str(d.invNo).trim(), license: d.license || '', contract: d.contract, rate, half: d.half === '' ? null : Number(d.half) || null, ot: d.ot, close: d.close || '月末', pay: d.pay || '翌月末', fee: d.fee, safety: Number(d.safety) || 0, other: d.other || '', wht: d.wht, checker: d.checker });
     x.invoice = !!x.invNo; x.rateHist = x.rateHist || []; if (rate) pushHist(x.rateHist as { from: string; v: number }[], rate, str(d.rateFrom) || TODAY); }
   if (t === '取引先') Object.assign(x, { name: d.name, cat: d.cat, invNo: str(d.invNo).trim(), tel: d.tel || '', close: d.close, pay: d.pay, note: d.note || '' });
-  if (t === '就業ルール') Object.assign(x, { name: d.name, start: d.start, end: d.end, hours: Number(d.hours) || 8, brk: d.brk, system: d.system, cal: d.cal, ot: d.ot, late: d.late });
+  if (t === '就業ルール') { const v: RuleVer = { from: str(d.from) || TODAY, days: Number(d.days) || 255, start: str(d.start), end: str(d.end), hours: Number(d.hours) || 8, brk: str(d.brk), system: str(d.system), cal: str(d.cal), ot: str(d.ot), late: str(d.late) };
+    const r = x as unknown as WorkRule; r.name = str(d.name); r.vers = r.vers || []; const same = r.vers.find(z => z.from === v.from); if (same) Object.assign(same, v); else r.vers.push(v); r.vers.sort((a, b) => a.from.localeCompare(b.from));
+    const cur = ruleVer(r, TODAY); Object.assign(r, { days: cur.days, start: cur.start, end: cur.end, hours: cur.hours, brk: cur.brk, system: cur.system, cal: cur.cal, ot: cur.ot, late: cur.late }); delete (r as unknown as Record<string, unknown>).from; }
   return null;
 }
 export function toggleMasterStop(s: AppState, t: MasterTab, id: string): { name: string; stopped: boolean } { const x = findMaster(s, t, id) as MasterItem & { stopped?: boolean }; x.stopped = !x.stopped; return { name: MDEF[t].name(x), stopped: !!x.stopped }; }
 export function deleteMaster(s: AppState, t: MasterTab, id: string) { const x = findMaster(s, t, id); if (!x) return; const a = MDEF[t].list(s) as MasterItem[]; a.splice(a.indexOf(x), 1); }
 export function saveCompany(s: AppState, patch: Partial<Company>) { Object.assign(s.company, patch); }
+/* 月次の差異（経理向け）：給与ソフトの実額を手入力 */
+export function setPayroll(s: AppState, month: string, k: 'gross' | 'burden', v: string) { const pr = s.payroll[month] = s.payroll[month] || { gross: '', burden: '' }; pr[k] = v.replace(/[,，]/g, ''); }
 export function addHoliday(s: AppState, h: Holiday) { s.holidays.push(h); }
 export function deleteHoliday(s: AppState, i: number): Holiday { return s.holidays.splice(i, 1)[0]; }
 

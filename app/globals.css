@@ -541,3 +541,17 @@ tbody.drop-after tr:last-child td{box-shadow:inset 0 -3px 0 var(--brand-600)}
 .print-page table{font-size:12.5px}
 .print-page .print-tools{display:flex;gap:8px;justify-content:flex-end;margin-bottom:12px}
 @media print{ body{background:#fff} .print-tools{display:none!important} .toast{display:none!important} }
+
+/* v0.1.6 */
+.catsum{display:inline-flex;gap:4px;align-items:center;border:1px solid var(--line);border-radius:999px;padding:1px 9px;margin-left:6px;background:#fff}
+.money tr.inner td{color:var(--muted)}
+.money tr.sub td{background:#fff}
+.ngrid th:nth-last-child(-n+2), .ngrid td:nth-last-child(-n+2){white-space:nowrap}
+.nextv{margin-top:3px;color:var(--brand-800);font-size:11.5px}
+/* v0.1.7 労務費B */
+.nklist tr.pend td{color:var(--muted);background:repeating-linear-gradient(135deg,#fff,#fff 6px,var(--panel-tint) 6px,var(--panel-tint) 12px)}
+.nklist tr.subt td{font-weight:700;background:var(--panel-tint)}
+.nklist tr.nkdet td{background:var(--brand-50);padding:10px 16px}
+.calcbox{display:flex;flex-direction:column;gap:8px;font-size:13px}
+.calcgrid{display:grid;grid-template-columns:max-content max-content 1fr;gap:4px 14px;align-items:baseline}
+@media (max-width:640px){.calcgrid{grid-template-columns:1fr}}

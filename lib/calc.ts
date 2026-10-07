@@ -3,10 +3,10 @@
    HTMLモック v0.1.5 の計算をそのまま移植
    ========================================================= */
 import type {
-  AppState, Project, Estimate, EstVersion, EstLine, Punch, Customer, Contact, Div, Product, Worker, Partner, Vendor, Cost, Role,
+  AppState, Project, Estimate, EstVersion, EstLine, Punch, Customer, Contact, Div, Product, Worker, Partner, Vendor, Cost, Role, WorkRule, RuleVer,
 } from './types';
 import { TODAY, SITE_INTERNAL, DEFAULT_RATE, DIVS, CAT2DIV } from './data';
-import { toMin, round025, norm, hm } from './format';
+import { toMin, round025, norm, hm, fmtDate } from './format';
 
 /* ---- 参照 ---- */
 export const prod = (s: AppState, code?: string): Product | undefined => s.products.find(p => p.code === code);
@@ -129,19 +129,94 @@ export function recWarnings(s: AppState, r: Punch): string[] {
 }
 
 /* ---- 案件の原価・予算 ---- */
-export type Labor = { staffNinku: number; staffCost: number; extNinku: number; extCost: number; pendingNinku: number };
+export type Labor = { staffNinku: number; staffCost: number; staffPrem: number; extNinku: number; extCost: number; pendingNinku: number };
 export function laborOf(s: AppState, no: string, opt?: { noPast?: boolean }): Labor {
   const p = projByNo(s, no);
-  const res: Labor = { staffNinku: 0, staffCost: 0, extNinku: 0, extCost: 0, pendingNinku: 0 };
+  const res: Labor = { staffNinku: 0, staffCost: 0, staffPrem: 0, extNinku: 0, extCost: 0, pendingNinku: 0 };
   if (p && p.pastLabor && !opt?.noPast) { const pl = p.pastLabor; res.staffNinku += pl.staffNinku; res.staffCost += pl.staffCost; res.extNinku += pl.extNinku; res.extCost += pl.extCost; }
+  const W = wageAll(s);
   s.punches.forEach(r => {
     const c = recCalc(r); const n = c.bySite[no]; if (!n) return;
     if (!isFinal(r)) { res.pendingNinku += n; return; }
-    const cost = n * rateOf(s, r.worker, r.date);
-    if (isExt(s, r.worker)) { res.extNinku += n; res.extCost += cost; } else { res.staffNinku += n; res.staffCost += cost; }
+    if (isExt(s, r.worker)) { res.extNinku += n; res.extCost += n * rateOf(s, r.worker, r.date); return; }   // 外部：今までどおり（0.25丸めの人工×協力会社の単価）
+    const x = W.get(r); if (!x || !x.site[no]) return;
+    res.staffNinku += x.site[no].ninku; res.staffCost += x.site[no].cost; res.staffPrem += x.site[no].prem;
   });
   return res;
 }
+
+/* ---- 就業ルールの版と社員の紐付け（v0.1.6） ---- */
+export function ruleVer(r: WorkRule, date: string): RuleVer { let v = r.vers[0]; r.vers.forEach(x => { if (x.from <= date) v = x; }); return v; }
+export const ruleNext = (r: WorkRule) => r.vers.find(x => x.from > TODAY);
+export function ruleOfW(w: Worker, date: string): string | undefined { let id = w.rule; (w.ruleHist || []).forEach(x => { if (x.from <= date) id = x.rule; }); return id; }
+export const ruleNextW = (w: Worker) => (w.ruleHist || []).find(x => x.from > TODAY);
+export const ruleFor = (s: AppState, w: Worker, date: string): WorkRule => s.workRules.find(x => x.id === ruleOfW(w, date)) || s.workRules[0];
+
+/* =========================================================
+   v0.1.7 社員の労務費（颯_労務費計算_要件整理_v0.1 が正本）
+   B 賃金相当：1人・1日ごとに、打刻から賃金相当額を計算し、実働の比率で現場に按分
+   A 標準単価：人工（実働÷所定時間、丸めない）×標準単価。割増なし
+   ========================================================= */
+export function wageOf(w: Worker, date: string): number { let v = 0; (w.wage || []).forEach(x => { if (x.from <= date) v = x.v; }); return v; }
+export const isLegalHol = (d: string) => new Date(d + 'T00:00:00').getDay() === 0;          // 休日カレンダー：毎週日曜＝法定休日
+export const isDayRate = (w: Worker) => ['日給', '日給月給'].includes(w.pay || '');            // 日給月給は日給制として扱う【仮】
+export const laborB = (s: AppState) => String(s.company.laborMethod || '').startsWith('B');
+function weekKey(d: string) { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() - x.getDay()); return fmtDate(x); }   // 週は日曜はじまり
+function netMinIn(r: Punch, a: number, b: number) { // 区間[a,b)（分）に入る実働（休憩を除く）
+  let m = 0; r.segs.forEach(sg => { if (!sg.end) return; const s0 = Math.max(toMin(sg.start), a), s1 = Math.min(toMin(sg.end), b); if (s1 <= s0) return; let x = s1 - s0;
+    r.breaks.filter(k => k.end).forEach(k => { const o = Math.min(s1, toMin(k.end as string)) - Math.max(s0, toMin(k.start)); if (o > 0) x -= o; }); m += x; }); return m; }
+export type WageSite = { min: number; ratio: number; ninku: number; costA: number; costB: number; cost: number; prem: number; base: number; ot: number; night: number; hol: number; burden: number };
+export type WageRec = {
+  w: string; date: string; hr: number; sh: number; wage: number; work: number; inside: number; dayOT: number; weekOT: number; otMin: number; ot60: number;
+  holMin: number; night: number; base: number; otAmt: number; holAmt: number; nightAmt: number; wageAmt: number; costB: number; up: number;
+  site: Record<string, WageSite>; std: number; ruleName: string;
+};
+let wageCache: { key: string; map: Map<Punch, WageRec> } | null = null;
+/** 社員の全打刻について、1日ごとの賃金相当額・現場按分を計算する（状態が変わるまで結果を使い回す） */
+export function wageAll(s: AppState): Map<Punch, WageRec> {
+  const key = JSON.stringify([s.company, s.workRules, s.workers.map(w => [w.id, w.pay, w.wage, w.excl, w.rates, w.rule, w.ruleHist]), s.punches.map(r => [r.id, r.worker, r.date, r.segs, r.breaks, r.status])]);
+  if (wageCache && wageCache.key === key) return wageCache.map;
+  const M = new Map<Punch, WageRec>(); const C = s.company; const up = 1 + (Number(C.burden) || 0) / 100 + (Number(C.bonusRate) || 0) / 100; const B = laborB(s);
+  s.workers.filter(w => w.kind === '社員').forEach(w => {
+    const recs = s.punches.filter(r => r.worker === w.id).sort((a, b) => a.date.localeCompare(b.date));
+    const wk: Record<string, number> = {}, mo: Record<string, number> = {};
+    recs.forEach(r => { const c = recCalc(r); if (c.open || !c.work) return;
+      const rule = ruleFor(s, w, r.date); const v = ruleVer(rule, r.date); const sh = Math.round((Number(v.hours) || 8) * 60);
+      const wage = wageOf(w, r.date); const hr = isDayRate(w) ? wage / (sh / 60) : w.pay === '月給' ? (wage - (w.excl || 0)) / ((sh / 60) * (Number(v.days) || 255) / 12) : wage;
+      const work = c.work, hol = isLegalHol(r.date);
+      const night = netMinIn(r, 1320, 1740) + netMinIn(r, 0, 300);
+      let dayOT = 0, weekOT = 0, inside = 0, holMin = 0;
+      if (hol) { holMin = work; }
+      else { dayOT = Math.max(0, work - 480); const within = work - dayOT; const k = weekKey(r.date); const before = wk[k] || 0;
+        weekOT = Math.min(within, Math.max(0, before + within - 2400)); wk[k] = before + within - weekOT; inside = within - weekOT; }
+      const otMin = dayOT + weekOT; const m = r.date.slice(0, 7); const mb = mo[m] || 0; const ot60 = Math.max(0, mb + otMin - 3600) - Math.max(0, mb - 3600); mo[m] = mb + otMin;
+      const P = (k: 'premOt' | 'premOt60' | 'premNight' | 'premHol') => (Number(C[k]) || 0) / 100;
+      const base = hol ? 0 : isDayRate(w) ? wage : Math.round(hr * inside / 60);
+      // 日給制は、週40時間超で時間外になった分の「時間」は日給に含まれているので割増分だけ。1日8時間超の分は1＋割増
+      const otAmt = Math.round(hr / 60 * (dayOT * (1 + P('premOt')) + weekOT * (isDayRate(w) ? P('premOt') : 1 + P('premOt')) + ot60 * (P('premOt60') - P('premOt'))));
+      const holAmt = Math.round(hr / 60 * holMin * (1 + P('premHol')));
+      const nightAmt = Math.round(hr / 60 * night * P('premNight'));
+      const wageAmt = base + otAmt + holAmt + nightAmt;
+      const costB = Math.round(wageAmt * up);
+      const keys = Object.keys(c.siteMin).concat(c.internal ? [SITE_INTERNAL] : []); const minOf = (k: string) => k === SITE_INTERNAL ? c.internal : c.siteMin[k];
+      const std = rateOf(s, w.id, r.date);
+      const site: Record<string, WageSite> = {}; let acc = 0;
+      keys.forEach((k, i) => { const ratio = minOf(k) / work;
+        const costA = Math.round(minOf(k) / sh * std);
+        const cB = i === keys.length - 1 ? costB - acc : Math.round(costB * ratio); acc += cB;
+        const premB = Math.round((otAmt + holAmt + nightAmt) * up * ratio);
+        site[k] = { min: minOf(k), ratio, ninku: minOf(k) / sh, costA, costB: cB, cost: B ? cB : costA, prem: B ? premB : 0,
+          base: Math.round(base * ratio), ot: Math.round(otAmt * ratio), night: Math.round(nightAmt * ratio), hol: Math.round(holAmt * ratio), burden: Math.round((up - 1) * wageAmt * ratio) }; });
+      M.set(r, { w: w.id, date: r.date, hr, sh, wage, work, inside, dayOT, weekOT, otMin, ot60, holMin, night, base, otAmt, holAmt, nightAmt, wageAmt, costB, up, site, std, ruleName: rule.name });
+    });
+  });
+  wageCache = { key, map: M }; return M;
+}
+
+/* 人工の表示：社員は実働÷所定時間を0.25に丸めて表示（金額には使わない）。外部は今までどおり */
+export function ninkuDisp(s: AppState, r: Punch, site: string): number { const c = recCalc(r); if (isExt(s, r.worker)) return site === 'all' ? c.dayNinku : (c.bySite[site] || 0);
+  const w = worker(s, r.worker); const sh = (Number(ruleVer(ruleFor(s, w, r.date), r.date).hours) || 8) * 60;
+  const m = site === 'all' ? Object.values(c.siteMin).reduce((a, b) => a + b, 0) : (c.siteMin[site] || 0); return round025(m / sh); }
 export type ProjFin = {
   contract: number; budget: number; budgetBy: Record<Div, number>; actual: number; actBy: Record<Div, number>; lab: Labor;
   remain: number; planGP: number; actGP: number; consume: number;
@@ -152,7 +227,7 @@ export function projFin(s: AppState, p: Project): ProjFin {
   (p.budget || []).forEach(b => budgetBy[b.div] += b.init + b.change);
   const budget = Object.values(budgetBy).reduce((a, b) => a + b, 0);
   const actBy = {} as Record<Div, number>; DIVS.forEach(d => actBy[d] = 0);
-  const lab = p.no ? laborOf(s, p.no) : { staffNinku: 0, staffCost: 0, extNinku: 0, extCost: 0, pendingNinku: 0 };
+  const lab: Labor = p.no ? laborOf(s, p.no) : { staffNinku: 0, staffCost: 0, staffPrem: 0, extNinku: 0, extCost: 0, pendingNinku: 0 };
   actBy['労務費'] = lab.staffCost + lab.extCost;
   (p.no ? s.costs[p.no] || [] : []).forEach(c => actBy[c.cat] += c.amount);
   const actual = Object.values(actBy).reduce((a, b) => a + b, 0);
@@ -161,7 +236,7 @@ export function projFin(s: AppState, p: Project): ProjFin {
 export const meterCls = (r: number) => r > 1 ? 'over' : r > 0.85 ? 'warn' : '';
 export const budDraft = (s: AppState, p: Project) => (s.budState[p.no || ''] || {}).state === '下書き';
 export const caseHasActuals = (s: AppState, p: Project) => (s.costs[p.no || ''] || []).length > 0 || s.punches.some(r => r.segs.some(sg => sg.site === p.no)) || !!p.pastLabor;
-export const costVendorName = (s: AppState, c: Cost) => c.vid ? partner(s, c.vid).name : c.sid ? vendor(s, c.sid).name : c.vendor;
+export const costVendorName = (s: AppState, c: Cost) => c.vid ? partner(s, c.vid).name : c.wid ? worker(s, c.wid).name : c.sid ? vendor(s, c.sid).name : c.vendor;
 
 /* ---- 外注支払 ---- */
 export function ptRate(pt: Partner, date: string): number { const h = pt.rateHist || []; if (!h.length) return pt.rate || 0; let v = h[0].v; h.forEach(r => { if (r.from <= date) v = r.v; }); return v; }

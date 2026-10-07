@@ -115,7 +115,7 @@ const WORKERS_BASE: Worker[] = [
 export const FLAG_DEF: [FlagKey, string, string][] = [
   ['punch', '打刻する', '颯で出退勤・現場を打刻する'],
   ['att', '勤怠集計の対象', '月の勤怠集計・給与CSVに出す（案1）'],
-  ['cost', '労務費（原価）の対象', '打刻した人工×日額原価単価を工事原価に入れる'],
+  ['cost', '労務費（原価）の対象', '打刻から計算した労務費（会社設定のB／A）を工事原価に入れる'],
   ['ot', '残業アラートの対象', '36協定の上限に近づいたら知らせる。管理監督者・役員は外す'],
 ];
 export const FLAG_SHORT: Record<FlagKey, string> = { punch: '打刻', att: '勤怠', cost: '原価', ot: '残業' };
@@ -129,10 +129,23 @@ const STAFF_EXT: Record<string, Partial<Worker>> = {
   E6: { kana: 'もちづき さやか', empNo: '1020', emp: 'パート・アルバイト', pay: '時給', rule: 'R2', approver: '川口（管理者）', hired: '2024-04-01', means: '共用端末のみ', flags: { punch: true, att: true, cost: false, ot: true }, lv: { base: '2026-04-01', grant: 7, used: 4 } },
   E7: { kana: 'おの たかし', empNo: '1017', emp: '正社員', pay: '日給月給', rule: 'R1', approver: '田中 誠（職長）', hired: '2021-04-01', means: 'スマホ', flags: { punch: true, att: true, cost: true, ot: true }, lv: { base: '2026-04-01', grant: 14, used: 5 } },
 };
+/* v0.1.7 社員の賃金（B方式の実績用）と標準単価（A方式：予算・見積用）【仮：サンプル】
+   標準単価＝（所定内の年間給与＋賞与＋会社負担）÷年間の所定労働日数。残業代は含めない */
+const WAGES: Record<string, Partial<Worker>> = {
+  E1: { pay: '月給',     wage: [{ from: '2026-04-01', v: 380000 }], excl: 20000, rates: [{ from: '2026-04-01', v: 20570 }] },
+  E2: { pay: '日給月給', wage: [{ from: '2025-04-01', v: 17000 }, { from: '2026-04-01', v: 18000 }], excl: 0, rates: [{ from: '2025-04-01', v: 19550 }, { from: '2026-04-01', v: 20700 }] },
+  E3: { pay: '日給月給', wage: [{ from: '2026-04-01', v: 16000 }], excl: 0, rates: [{ from: '2026-04-01', v: 18400 }] },
+  E4: { pay: '日給月給', wage: [{ from: '2026-04-01', v: 20000 }], excl: 0, rates: [{ from: '2026-04-01', v: 23000 }] },
+  E5: { pay: '日給',     wage: [{ from: '2026-04-01', v: 19000 }], excl: 0, rates: [{ from: '2026-04-01', v: 21850 }] },
+  E6: { pay: '月給',     wage: [{ from: '2026-04-01', v: 220000 }], excl: 10000, rates: [{ from: '2026-04-01', v: 12390 }], emp: '正社員' },
+  E7: { pay: '日給月給', wage: [{ from: '2026-04-01', v: 18500 }], excl: 0, rates: [{ from: '2026-04-01', v: 21300 }] },
+};
 const EXT_EXT: Record<string, Partial<Worker>> = { X1: { means: 'スマホ' }, X2: { means: 'スマホ' }, X3: { means: '共用端末のみ' }, X4: { means: '共用端末のみ' }, X5: { means: 'スマホ' }, X6: { means: '代理入力のみ' }, X7: { means: 'スマホ' } };
 export const WORKERS: Worker[] = WORKERS_BASE.map(w => {
-  const x: Worker = { ...w, ...(STAFF_EXT[w.id] || EXT_EXT[w.id] || {}) };
+  const x: Worker = { ...w, ...(STAFF_EXT[w.id] || EXT_EXT[w.id] || {}), ...(WAGES[w.id] || {}) };
   if (x.kind !== '社員') x.flags = { ...EXT_FLAGS };
+  /* 社員の就業ルールも適用開始日つきの履歴。過去の月は当時のルールで計算する */
+  if (x.rule) x.ruleHist = [{ from: x.hired && x.hired < '2024-04-01' ? '2024-04-01' : (x.hired || '2024-04-01'), rule: x.rule }];
   return x;
 });
 
@@ -144,11 +157,15 @@ export const VENDORS: Vendor[] = [
   { id: 'V5', name: '富岳運輸（架空）', cat: '運搬', invNo: '', tel: '054-000-1005', close: '月末', pay: '翌月末', note: 'インボイス未登録（経過措置）' },
   { id: 'V6', name: '静岡バルブ商会（架空）', cat: '材料', invNo: 'T9012345678901', tel: '054-000-1006', close: '20日', pay: '翌月末', note: 'バルブ・計器' },
 ];
-export const WORK_RULES: WorkRule[] = [
-  { id: 'R1', name: '現場（日給月給・日給）', start: '08:00', end: '17:00', hours: 8, brk: '標準（10時15分・昼60分・15時15分）', system: '1年単位の変形労働時間制【要確認】', cal: '現場カレンダー', ot: '1日8時間超・週40時間超', late: '判定しない（朝礼基準）' },
-  { id: 'R2', name: '事務（月給・時給）', start: '08:30', end: '17:30', hours: 8, brk: '昼60分', system: '通常', cal: '事務所カレンダー', ot: '1日8時間超・週40時間超', late: '判定する' },
+/* 就業ルールは版（適用開始日）で持つ。中身を変えるときは版を足すだけで、社員の紐付けは変えない */
+const RULES_BASE = [
+  { id: 'R1', name: '現場（日給月給・日給）', days: 255, start: '08:00', end: '17:00', hours: 8, brk: '標準（10時15分・昼60分・15時15分）', system: '1年単位の変形労働時間制【要確認】', cal: '現場カレンダー', ot: '1日8時間超・週40時間超', late: '判定しない（朝礼基準）' },
+  { id: 'R2', name: '事務（月給・時給）', days: 245, start: '08:30', end: '17:30', hours: 8, brk: '昼60分', system: '通常', cal: '事務所カレンダー', ot: '1日8時間超・週40時間超', late: '判定する' },
 ];
+export const WORK_RULES: WorkRule[] = RULES_BASE.map(r => ({ ...r, vers: [{ from: '2024-04-01', days: r.days, start: r.start, end: r.end, hours: r.hours, brk: r.brk, system: r.system, cal: r.cal, ot: r.ot, late: r.late }] }));
+WORK_RULES[0].vers.push({ from: '2027-04-01', days: 255, start: '08:00', end: '16:45', hours: 7.75, brk: '標準（10時15分・昼60分・15時15分）', system: '1年単位の変形労働時間制【要確認】', cal: '現場カレンダー', ot: '1日8時間超・週40時間超', late: '判定しない（朝礼基準）', note: '所定を7時間45分に短縮（例）' });
 export const COMPANY: Company = {
+  laborMethod: 'B（賃金相当：打刻から計算）', premOt: 25, premOt60: 50, premNight: 25, premHol: 35, burden: 15, bonusRate: 0, weekStart: '日曜',
   close: '月末', costClose: '月末（勤怠と同じ）', lockAfter: '締めた月の打刻は変更不可（管理者が締めを解除したときだけ）',
   round: '丸めない（1分単位で集計）', night: '22:00〜5:00',
   ninkuH: 8, ninkuUnit: '0.25', split: '時間で按分',
@@ -347,6 +364,11 @@ export function genPunches(): Punch[] {
     // 現場C（2026-0114）：小野・森は 9/14 以降。加藤は A と C を行き来
     if (day >= '2026-09-14') { add('E7', [[C, '08:00', ot()]]); if (rnd() < 0.85) add('X7', [[C, '08:00', '17:00']]); if (rnd() < 0.3) add('X4', [[C, '08:00', '17:00']]); }
   }
+  // v0.1.7 割増が付く日のサンプル
+  // 9/27（日・法定休日）：工場の休日に機械入替（プレス機の据付）。外部の金額を変えないため、サンプルは社員だけ
+  ['E1', 'E2', 'E4'].forEach(w => recs.push({ id: '', date: '2026-09-27', worker: w, segs: [{ site: A, start: '08:00', end: '17:00' }], breaks: [{ start: '12:00', end: '13:00' }], status: '承認', proxy: null }));
+  // 10/1（木）：夜間作業（田中。13時〜23時30分、夕食休憩60分）
+  ['E4'].forEach(w => { const r = recs.find(x => x.date === '2026-10-01' && x.worker === w); if (r) { r.segs = [{ site: A, start: '13:00', end: '23:30' }]; r.breaks = [{ start: '18:00', end: '19:00' }]; } });
   // 外部は「確認」
   recs.forEach(r => { const w = WORKERS.find(x => x.id === r.worker); if (w && w.kind !== '社員') r.status = '確認'; });
   // 10/6（昨日）は未承認・警告を混ぜる
@@ -376,6 +398,9 @@ export const CAT2DIV: Record<string, '材料費' | '労務費' | '外注費' | '
 export const STAFFS = ['長谷川（営業）', '杉本（営業）', '佐藤 健一（施工管理）'];
 export const PRE = ['与件', '見積中'];
 export const NOGRP = '（工種なし）';
+/* 実行予算の明細の理由区分 */
+export const BCATS = ['契約変更', '単価差', '手配変更', '見積漏れ', 'その他'];
+export const RFIELDS: [string, string][] = [['start', '始業'], ['end', '終業'], ['hours', '所定労働時間'], ['brk', '休憩'], ['system', '労働時間制'], ['cal', '休日カレンダー'], ['ot', '残業の数え方'], ['late', '遅刻・早退']];
 
 /* ログインするユーザー（サンプル）。パスワードは検証しない（モック） */
 export const USERS: User[] = [

@@ -31,9 +31,13 @@ export type WorkerKind = '社員' | '協力会社' | '一人親方';
 export type Flags = { punch: boolean; att: boolean; cost: boolean; ot: boolean };
 export type FlagKey = keyof Flags;
 export type Leave = { base: string; grant: number; used: number };
+export type RuleHist = { from: string; rule: string };
 export type Worker = {
   id: string; name: string; kind: WorkerKind; org: string; job: string;
-  rates?: RateHist[];
+  rates?: RateHist[];                 // 標準単価（A方式：予算・見積用）の履歴
+  wage?: RateHist[];                  // 賃金額（B方式：実績の労務費用）の履歴
+  excl?: number;                      // 割増の基礎から除く手当（月給制のみ）
+  ruleHist?: RuleHist[];              // 就業ルールの紐付けの履歴
   kana?: string; empNo?: string; emp?: string; pay?: string; rule?: string; approver?: string; hired?: string; left?: string;
   means?: string; flags?: Flags; lv?: Leave; stopped?: boolean;
 };
@@ -42,12 +46,18 @@ export type Vendor = {
   id: string; name: string; cat: string; invNo: string; tel: string; close: string; pay: string; note: string; stopped?: boolean;
 };
 
+/* 就業ルールの版（適用開始日ごとの内容） */
+export type RuleVer = {
+  from: string; days: number; start: string; end: string; hours: number; brk: string; system: string;
+  cal: string; ot: string; late: string; note?: string;
+};
 export type WorkRule = {
   id: string; name: string; start: string; end: string; hours: number; brk: string; system: string;
-  cal: string; ot: string; late: string; stopped?: boolean;
+  cal: string; ot: string; late: string; days: number; vers: RuleVer[]; stopped?: boolean;
 };
 
 export type Company = {
+  laborMethod: string; premOt: number; premOt60: number; premNight: number; premHol: number; burden: number; bonusRate: number; weekStart: string;
   close: string; costClose: string; lockAfter: string; round: string; night: string;
   ninkuH: number; ninkuUnit: string; split: string;
   m45: number; y360: number; special: string; spY: number; spM: number; spAvg: number; alert1: number; alert2: number;
@@ -92,8 +102,13 @@ export type Project = {
 
 /* 原価実績（材料・外注・経費の手入力分） */
 export type Cost = {
-  date: string; group: string; cat: Div; vendor: string; vid?: string; sid?: string; memo: string; amount: number; doc?: string;
+  date: string; group: string; cat: Div; vendor: string; vid?: string; sid?: string; wid?: string; memo: string; amount: number; doc?: string;
 };
+
+/* 実行予算の明細：調整＝確定前（見積の原価に足し引き）、変更＝確定後（理由区分つきで1件ずつ） */
+export type BudgetLineKind = '調整' | '変更';
+export type BudgetLine = { kind: BudgetLineKind; date: string; div: Div; group: string; amount: number; cat: string; reason: string; who: string; auto?: boolean };
+export type Payroll = { gross: string; burden: string };
 
 /* 打刻 */
 export type Seg = { site: string; start: string; end: string | null };
@@ -110,7 +125,6 @@ export type Punch = {
 export type User = { id: string; name: string; loginId: string; role: Role; workerId: string | null; stopped?: boolean };
 
 export type Schedule = { ver: number; date: string; name: string };
-export type BudgetLog = { date: string; who: string; reason: string; amount: number };
 export type BudState = { state: '下書き' | '確定'; at?: string; by?: string };
 export type PayAdj = { contract: number; deduct: number };
 
@@ -122,7 +136,8 @@ export type AppState = {
   punches: Punch[];
   nextSeq: number;
   schedules: Record<string, Schedule[]>;
-  blog: Record<string, BudgetLog[]>;
+  bl: Record<string, BudgetLine[]>;
+  payroll: Record<string, Payroll>;
   koshu: Koshu[];
   company: Company;
   holidays: Holiday[];
